@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { Building2 } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { DashboardView } from '../components/DashboardView';
@@ -14,22 +15,29 @@ import { CondoSelectorModal } from '../components/CondoSelectorModal';
 import { BankAccountsModal } from '../components/BankAccountsModal';
 import { fetchWithAuth } from '../lib/api';
 
-const DEFAULT_CONDO = {
-  id: '44444444-4444-4444-4444-444444444401',
-  name: 'Residencias Parque El Ávila',
-  rif: 'J-50123456-7',
-  city: 'Caracas',
-  state: 'Miranda',
-  address: 'Av. Principal de Los Palos Grandes, 3ra Transversal',
+/**
+ * Estado inicial sin residencia cargada. Antes se arrancaba con una residencia
+ * inventada (El Ávila, con su RIF y dirección) para que la interfaz no se
+ * viera vacía, lo que hacía que esa residencia fantasma apareciera en toda
+ * pantalla si la carga del catálogo fallaba o tardaba. Ahora la pantalla
+ * arranca sin residencia y muestra "—" hasta que el backend responde.
+ */
+const NO_CONDO = {
+  id: '',
+  name: '',
+  rif: '',
+  city: '',
+  state: '',
+  address: '',
   main_currency: 'USD',
   secondary_currency: 'VES',
 };
 
 export default function Home() {
   const [currentTab, setCurrentTab] = useState('dashboard');
-  const [bcvRate, setBcvRate] = useState('36.8500');
-  const [condos, setCondos] = useState<any[]>([DEFAULT_CONDO]);
-  const [selectedCondo, setSelectedCondo] = useState<any>(DEFAULT_CONDO);
+  const [bcvRate, setBcvRate] = useState<string>('');
+  const [condos, setCondos] = useState<any[]>([]);
+  const [selectedCondo, setSelectedCondo] = useState<any>(NO_CONDO);
   const [condoSummary, setCondoSummary] = useState<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [condoBankAccounts, setCondoBankAccounts] = useState<any[]>([]);
@@ -124,16 +132,35 @@ export default function Home() {
       <div className="flex-1 flex flex-col min-w-0">
         <Header
           bcvRate={bcvRate}
-          condoName={selectedCondo?.name || 'Residencias Parque El Ávila'}
-          condoRif={selectedCondo?.rif || 'J-50123456-7'}
-          condoLocation={selectedCondo ? `${selectedCondo.city}, ${selectedCondo.state}` : 'Caracas, Miranda'}
+          condoName={selectedCondo?.name || '—'}
+          condoRif={selectedCondo?.rif || '—'}
+          condoLocation={[selectedCondo?.city, selectedCondo?.state].filter(Boolean).join(', ') || '—'}
           userName={`${userProfile.firstName} ${userProfile.lastName}`}
           onOpenProfile={() => setShowProfileModal(true)}
           onOpenCondoSelector={() => setShowCondoSelectorModal(true)}
         />
 
         <main className="flex-1 p-6 md:p-8 max-w-7xl mx-auto w-full">
-          {selectedCondo && currentTab === 'dashboard' && (
+          {/* Sin residencia cargada no se pinta ninguna vista de datos: antes se
+              mostraba la del resumen de una residencia fija. */}
+          {!selectedCondo.id && currentTab !== 'access' && (
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-10 text-center">
+              <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <h2 className="font-bold text-slate-800">No hay una residencia seleccionada</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Elige una residencia para ver su información, o regístrala si aún no tienes ninguna.
+              </p>
+              <button
+                onClick={() => setShowCondoSelectorModal(true)}
+                className="mt-5 inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition"
+              >
+                <Building2 className="w-4 h-4" />
+                Gestionar Residencias
+              </button>
+            </div>
+          )}
+
+          {selectedCondo.id && currentTab === 'dashboard' && (
             <DashboardView
               condo={selectedCondo}
               summary={condoSummary}
@@ -143,7 +170,7 @@ export default function Home() {
             />
           )}
 
-          {selectedCondo && currentTab === 'expenses' && (
+          {selectedCondo.id && currentTab === 'expenses' && (
             <ExpensesView
               condoId={selectedCondo.id}
               bcvRate={bcvRate}
@@ -151,14 +178,14 @@ export default function Home() {
             />
           )}
 
-          {selectedCondo && currentTab === 'bills' && (
+          {selectedCondo.id && currentTab === 'bills' && (
             <BillsView
               condoId={selectedCondo.id}
               bcvRate={bcvRate}
             />
           )}
 
-          {selectedCondo && currentTab === 'payments' && (
+          {selectedCondo.id && currentTab === 'payments' && (
             <PaymentsView
               condoId={selectedCondo.id}
               payments={payments}
@@ -167,7 +194,7 @@ export default function Home() {
             />
           )}
 
-          {selectedCondo && currentTab === 'units' && (
+          {selectedCondo.id && currentTab === 'units' && (
             <UnitsView
               condoId={selectedCondo.id}
               units={units}
@@ -209,6 +236,7 @@ export default function Home() {
         <BankAccountsModal
           condoId={selectedCondo.id}
           condoName={selectedCondo.name}
+          condoRif={selectedCondo.rif}
           bankAccounts={condoBankAccounts}
           onClose={() => setShowBankModal(false)}
           onAccountAdded={() => loadCondoData(selectedCondo.id)}

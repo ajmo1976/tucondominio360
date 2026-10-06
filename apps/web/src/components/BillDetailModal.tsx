@@ -198,8 +198,8 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                 Unidad Inmobiliaria
               </p>
               <p className="font-bold text-slate-900 text-sm">
-                {data.unit_type === 'APARTMENT' ? 'Apartamento' : 'Inmueble'} {data.unit_code}
-                {data.building_name ? ` (${data.building_name})` : ''}
+                {data.unit_code}
+                {data.building_name ? ` · ${data.building_name}` : ''}
               </p>
               <p className="font-bold text-emerald-700 font-mono">Alícuota Legal: {aliquot.toFixed(5)}%</p>
               <p className="text-slate-500">Tasa Oficial BCV: Bs. {rate.toFixed(4)} / USD</p>

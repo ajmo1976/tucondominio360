@@ -20,7 +20,35 @@ export class PaymentsService {
       );
     }
 
-    // 2. Obtener la tasa de cambio BCV oficial aplicable a la fecha del pago
+    // 2. Aislamiento de datos: el inmueble y la cuenta bancaria reportados
+    //    deben pertenecer a la residencia del reporte. Sin esta validación se
+    //    podía registrar un pago de una residencia contra un inmueble de otra,
+    //    porque el id del inmueble venía cableado en el cliente.
+    const unitRes = await this.db.query(
+      `SELECT id, unit_code FROM property_units WHERE id = $1 AND condo_id = $2 AND is_active = TRUE`,
+      [dto.propertyUnitId, dto.condoId],
+    );
+    if (unitRes.rows.length === 0) {
+      throw new BadRequestException(
+        'El inmueble reportado no pertenece a esta residencia.',
+      );
+    }
+
+    if (dto.bankAccountId) {
+      const bankRes = await this.db.query(
+        `SELECT id FROM bank_accounts WHERE id = $1 AND condo_id = $2`,
+        [dto.bankAccountId, dto.condoId],
+      );
+      if (bankRes.rows.length === 0) {
+        throw new BadRequestException(
+          'La cuenta bancaria receptora no pertenece a esta residencia.',
+        );
+      }
+    }
+
+    // 4. Obtener la tasa de cambio BCV oficial aplicable a la fecha del pago.
+    //    Sin tasa registrada no se inventa un valor: se guarda el monto tal cual
+    //    lo reportó el residente, sin equivalente en dólares inventado.
     const rateRes = await this.db.query(
       `SELECT rate FROM exchange_rates 
        WHERE base_currency = 'USD' AND target_currency = 'VES' AND rate_date <= $1
@@ -28,14 +56,14 @@ export class PaymentsService {
       [dto.paymentDate],
     );
 
-    const bcvRate = rateRes.rows.length > 0 ? Number(rateRes.rows[0].rate) : 36.85;
+    const bcvRate = rateRes.rows.length > 0 ? Number(rateRes.rows[0].rate) : null;
 
     let equivalentUsd = dto.amountPaid;
-    if (dto.currency === 'VES') {
+    if (dto.currency === 'VES' && bcvRate !== null) {
       equivalentUsd = Number((dto.amountPaid / bcvRate).toFixed(2));
     }
 
-    // 3. Insertar el reporte de pago
+    // 5. Insertar el reporte de pago
     const insertRes = await this.db.query(
       `INSERT INTO payment_reports (
         condo_id, property_unit_id, reported_by_user_id, bank_account_id,

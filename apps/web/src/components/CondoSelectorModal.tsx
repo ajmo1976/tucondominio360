@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { X, Building2, MapPin, Shield, Check, Plus, Edit } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
+import { toNum } from '../lib/format';
 
 interface CondoSelectorModalProps {
   condos: any[];
@@ -54,7 +55,9 @@ export function CondoSelectorModal({
       address: c.address || '',
       city: c.city || 'Caracas',
       state: c.state || 'Miranda',
-      reserveFundRate: Number(c.reserve_fund_rate || 10),
+      // El % se precarga con el valor real de la residencia. Solo si la
+      // residencia no tiene ninguno se usa el 10% legal del esquema.
+      reserveFundRate: toNum(c.reserve_fund_rate) ?? 10,
     });
     setShowForm(true);
   };

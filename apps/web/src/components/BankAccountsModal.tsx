@@ -7,6 +7,7 @@ import { fetchWithAuth } from '../lib/api';
 interface BankAccountsModalProps {
   condoId: string;
   condoName: string;
+  condoRif: string;
   bankAccounts: any[];
   onClose: () => void;
   onAccountAdded: () => void;
@@ -15,6 +16,7 @@ interface BankAccountsModalProps {
 export function BankAccountsModal({
   condoId,
   condoName,
+  condoRif,
   bankAccounts,
   onClose,
   onAccountAdded,
@@ -24,14 +26,17 @@ export function BankAccountsModal({
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
+  // El titular de la cuenta es esta residencia: nombre y RIF vienen de ella.
+  // Antes se escribía el RIF de El Ávila, con lo que una cuenta nueva de
+  // cualquier otra residencia quedaba a nombre de otra.
   const [form, setForm] = useState({
-    bankCode: '0134',
-    bankName: 'Banesco Banco Universal',
+    bankCode: '0102',
+    bankName: '',
     accountNumber: '',
     accountType: 'Corriente',
     currency: 'VES',
     accountHolderName: condoName,
-    accountHolderRif: 'J-50123456-7',
+    accountHolderRif: condoRif,
     supportsPagoMovil: true,
     pagoMovilPhone: '',
   });
@@ -39,13 +44,13 @@ export function BankAccountsModal({
   const handleOpenCreate = () => {
     setEditingAccount(null);
     setForm({
-      bankCode: '0134',
-      bankName: 'Banesco Banco Universal',
+      bankCode: '0102',
+      bankName: '',
       accountNumber: '',
       accountType: 'Corriente',
       currency: 'VES',
       accountHolderName: condoName,
-      accountHolderRif: 'J-50123456-7',
+      accountHolderRif: condoRif,
       supportsPagoMovil: true,
       pagoMovilPhone: '',
     });
@@ -55,13 +60,13 @@ export function BankAccountsModal({
   const handleOpenEdit = (acc: any) => {
     setEditingAccount(acc);
     setForm({
-      bankCode: acc.bank_code || '0134',
-      bankName: acc.bank_name || 'Banesco',
+      bankCode: acc.bank_code || '',
+      bankName: acc.bank_name || '',
       accountNumber: acc.account_number || '',
       accountType: acc.account_type || 'Corriente',
       currency: acc.currency || 'VES',
       accountHolderName: acc.account_holder_name || condoName,
-      accountHolderRif: acc.account_holder_rif || 'J-50123456-7',
+      accountHolderRif: acc.account_holder_rif || condoRif,
       supportsPagoMovil: acc.supports_pago_movil ?? true,
       pagoMovilPhone: acc.pago_movil_phone || '',
     });
@@ -223,10 +228,13 @@ export function BankAccountsModal({
                         '0191': 'Banco Nacional de Crédito (BNC)',
                         '0172': 'Bancamiga',
                       };
-                      setForm({ ...form, bankCode: code, bankName: names[code] || 'Banco Universal' });
+                      // Nombre del banco según el código elegido. Sin código
+                      // no se inventa un banco por defecto.
+                      setForm({ ...form, bankCode: code, bankName: names[code] || '' });
                     }}
                     className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 font-semibold"
                   >
+                    <option value="">Selecciona el banco…</option>
                     <option value="0134">0134 - Banesco</option>
                     <option value="0102">0102 - Banco de Venezuela</option>
                     <option value="0105">0105 - Mercantil</option>

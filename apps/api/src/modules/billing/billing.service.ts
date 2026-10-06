@@ -21,7 +21,7 @@ export class BillingService {
   async getBills(condoId: string, periodId?: string, unitId?: string) {
     let query = `
       SELECT cb.*, 
-             pu.unit_code, pu.floor, b.name as building_name,
+             pu.unit_code, pu.unit_type, pu.floor, b.name as building_name,
              bp.period_year, bp.period_month, bp.issue_date, bp.due_date
       FROM condo_bills cb
       JOIN property_units pu ON pu.id = cb.property_unit_id
@@ -290,20 +290,26 @@ export class BillingService {
       `SELECT 
          COALESCE(SUM(CASE WHEN expense_subtype = 'ORDINARY_RECURRENT' THEN amount_usd ELSE 0 END), 0)::numeric(14,2) as total_ordinary_usd,
          COALESCE(SUM(CASE WHEN expense_subtype = 'EXTRAORDINARY' THEN amount_usd ELSE 0 END), 0)::numeric(14,2) as total_extraordinary_usd,
-         COALESCE(SUM(amount_usd), 0)::numeric(14,2) as total_common_usd
-       FROM expenses WHERE billing_period_id = $1`,
+         COALESCE(SUM(amount_usd), 0)::numeric(14,2) as total_common_usd,
+         COALESCE(SUM(CASE WHEN ec.code = 'GAS' THEN e.amount_usd ELSE 0 END), 0)::numeric(14,2) as total_gas_usd
+       FROM expenses e
+       LEFT JOIN expense_categories ec ON ec.id = e.category_id
+       WHERE e.billing_period_id = $1`,
       [periodId],
     );
 
     const totalOrdinaryUsd = Number(expRes.rows[0].total_ordinary_usd);
     const totalExtraordinaryUsd = Number(expRes.rows[0].total_extraordinary_usd);
     const totalCommonUsd = Number(expRes.rows[0].total_common_usd);
+    // El suministro de gas se reparte solo entre los inmuebles que tienen el
+    // servicio, por lo que su monto sale de la base común.
+    const totalGasUsd = Number(expRes.rows[0].total_gas_usd);
 
     const reserveFundRate = Number(period.reserve_fund_rate || 10.0);
     const grandTotalUsd = totalOrdinaryUsd + totalExtraordinaryUsd;
     // Fondo de reserva = Total de la relación del mes * el porcentaje (%) configurado en la residencia
     const reserveFundUsd = Number(((grandTotalUsd * reserveFundRate) / 100).toFixed(2));
-    const bcvRate = Number(period.bcv_exchange_rate || 36.85);
+    const bcvRate = Number(period.bcv_exchange_rate || 0);
     const grandTotalVes = Number((grandTotalUsd * bcvRate).toFixed(2));
 
     await this.db.query(
@@ -329,16 +335,80 @@ export class BillingService {
     );
 
     const unitsRes = await this.db.query(
-      `SELECT id, unit_code, aliquot_percentage, current_balance_usd FROM property_units WHERE condo_id = $1 AND is_active = TRUE`,
+      `SELECT id, unit_code, aliquot_percentage, current_balance_usd, has_gas_service
+       FROM property_units WHERE condo_id = $1 AND is_active = TRUE`,
       [period.condo_id],
     );
 
-    for (const unit of unitsRes.rows) {
+    // El gas se reparte solo entre los inmuebles con servicio de gas, usando la
+    // suma de sus alícuotas como base. Si el gasto de gas es 0 o no hay
+    // inmueble con el servicio, el reparto común se hace completo.
+    const gasUnits = unitsRes.rows.filter((u) => u.has_gas_service === true);
+    const gasAliquotBase = gasUnits.reduce(
+      (acc, u) => acc + Number(u.aliquot_percentage || 0),
+      0,
+    );
+    const canSplitGas = totalGasUsd > 0 && gasUnits.length > 0 && gasAliquotBase > 0;
+
+    // Base común sin gas: los inmueble sin servicio de gas no pagan esa parte.
+    const commonBase = totalOrdinaryUsd - (canSplitGas ? totalGasUsd : 0);
+
+    // Reparto con corrección de redondeo.
+    // Al redondear cada cuota a centavos, la suma de todas se desvía del
+    // subtotal del período por unos centavos. Se calcula sin redondear, se
+    // redondea, y la diferencia de centavos se asigna al inmueble de mayor
+    // alícuota. Así la suma de las cuotas cuadra exactamente con el subtotal,
+    // que es lo que debe mostrar el recibo.
+    //
+    // `normalize` reparte sobre la suma de los pesos, que es lo que necesita el
+    // gas: solo carga sobre parte de los inmuebles, así que su base no es 100
+    // sino la suma de las alícuotas de quienes tienen el servicio.
+    const allocate = (total: number, weights: number[], normalize = false): number[] => {
+      const weightBase = normalize ? weights.reduce((a, b) => a + b, 0) : 100;
+      if (weightBase <= 0) return weights.map(() => 0);
+      const raw = weights.map((w) => (w * total) / weightBase);
+      const rounded = raw.map((v) => Number(v.toFixed(2)));
+      const drift = Number((total - rounded.reduce((a, b) => a + b, 0)).toFixed(2));
+      if (drift !== 0 && rounded.length > 0) {
+        // El inmueble con el reparto más grande absorbe la diferencia.
+        let biggest = 0;
+        for (let i = 1; i < raw.length; i++) {
+          if (raw[i] > raw[biggest]) biggest = i;
+        }
+        rounded[biggest] = Number((rounded[biggest] + drift).toFixed(2));
+      }
+      return rounded;
+    };
+
+    const ordinaryShares = allocate(
+      commonBase,
+      unitsRes.rows.map((u) => Number(u.aliquot_percentage || 0)),
+    );
+    const extraordinaryShares = allocate(
+      totalExtraordinaryUsd,
+      unitsRes.rows.map((u) => Number(u.aliquot_percentage || 0)),
+    );
+    const reserveShares = allocate(
+      reserveFundUsd,
+      unitsRes.rows.map((u) => Number(u.aliquot_percentage || 0)),
+    );
+    const gasShares = canSplitGas
+      ? allocate(
+          totalGasUsd,
+          unitsRes.rows.map((u) =>
+            u.has_gas_service === true ? Number(u.aliquot_percentage || 0) : 0,
+          ),
+          true,
+        )
+      : unitsRes.rows.map(() => 0);
+
+    for (let idx = 0; idx < unitsRes.rows.length; idx++) {
+      const unit = unitsRes.rows[idx];
       const aliquot = Number(unit.aliquot_percentage);
-      const ordinaryShareUsd = Number(((totalOrdinaryUsd * aliquot) / 100).toFixed(2));
-      const extraordinaryShareUsd = Number(((totalExtraordinaryUsd * aliquot) / 100).toFixed(2));
-      const commonShareUsd = ordinaryShareUsd + extraordinaryShareUsd;
-      const unitReserveFundUsd = Number(((reserveFundUsd * aliquot) / 100).toFixed(2));
+      const ordinaryShareUsd = Number((ordinaryShares[idx] + gasShares[idx]).toFixed(2));
+      const extraordinaryShareUsd = extraordinaryShares[idx];
+      const commonShareUsd = Number((ordinaryShareUsd + extraordinaryShareUsd).toFixed(2));
+      const unitReserveFundUsd = reserveShares[idx];
       const previousDebtUsd = Number(unit.current_balance_usd > 0 ? unit.current_balance_usd : 0);
       const creditAppliedUsd = Number(unit.current_balance_usd < 0 ? Math.abs(unit.current_balance_usd) : 0);
       const totalDueUsd = ordinaryShareUsd + extraordinaryShareUsd + unitReserveFundUsd + previousDebtUsd - creditAppliedUsd;

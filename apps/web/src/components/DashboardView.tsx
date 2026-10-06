@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { AddBankAccountModal } from './AddBankAccountModal';
 import { fetchWithAuth } from '../lib/api';
+import { toNum, usd, bcvRateNum } from '../lib/format';
 import { useCondoReserveFundRate, formatReserveFundRate } from '../lib/useCondoReserveFundRate';
 
 interface DashboardViewProps {
@@ -67,12 +68,16 @@ export function DashboardView({
     }
   };
 
-  const rateNum = Number(bcvRate) || 36.85;
-  const grandTotalUsd = Number(summary?.latestBillingPeriod?.grand_total_usd || 0);
-  const grandTotalVes = (grandTotalUsd * rateNum).toLocaleString('es-VE', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  // Tasa BCV vigente; si no hay, el equivalente en Bs. no se inventa.
+  const rateNum = bcvRateNum(bcvRate);
+  const grandTotalUsd = toNum(summary?.latestBillingPeriod?.grand_total_usd);
+  const grandTotalVes =
+    rateNum !== null && grandTotalUsd !== null
+      ? (grandTotalUsd * rateNum).toLocaleString('es-VE', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+      : null;
 
   const totalOrdinaryUsd = Number(
     summary?.latestBillingPeriod?.total_ordinary_usd ?? (summary?.latestBillingPeriod?.total_common_usd || 0),
@@ -80,7 +85,9 @@ export function DashboardView({
   const totalExtraordinaryUsd = Number(summary?.latestBillingPeriod?.total_extraordinary_usd || 0);
   const reserveFundUsd = Number(summary?.latestBillingPeriod?.reserve_fund_usd || 0);
   const totalUnits = summary?.overview?.total_units || 0;
-  const totalAliquots = summary?.overview?.total_aliquots || '100.00000';
+  // Suma de alícuotas: se muestra la real. Antes caía a '100.00000' fijo,
+  // que ocultaba un reparto de alícuotas que no cuadraba.
+  const totalAliquots = summary?.overview?.total_aliquots ?? '—';
   const totalDebtUsd = Number(summary?.overview?.total_debt_usd || 0);
 
   return (
@@ -92,7 +99,7 @@ export function DashboardView({
           <p className="text-sm text-slate-500">
             Resumen financiero y operativo de{' '}
             <span className="font-bold text-slate-800">{condo?.name || 'Residencias'}</span>{' '}
-            (RIF: {condo?.rif || 'J-00000000-0'} · {condo?.city || 'Caracas'}, {condo?.state || 'Miranda'}).
+            (RIF: {condo?.rif || '—'} · {[condo?.city, condo?.state].filter(Boolean).join(', ') || '—'}).
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -113,10 +120,16 @@ export function DashboardView({
               <TrendingUp className="w-5 h-5" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-slate-900">${grandTotalUsd.toFixed(2)}</div>
+          <div className="text-2xl font-bold text-slate-900">{usd(grandTotalUsd)}</div>
           <div className="text-xs font-medium text-emerald-600 mt-1 flex items-center">
-            <span>≈ Bs. {grandTotalVes}</span>
-            <span className="text-slate-400 ml-1 text-[11px]">(Tasa BCV)</span>
+            {grandTotalVes !== null ? (
+              <>
+                <span>≈ Bs. {grandTotalVes}</span>
+                <span className="text-slate-400 ml-1 text-[11px]">(Tasa BCV)</span>
+              </>
+            ) : (
+              <span className="text-slate-400 text-[11px]">Tasa BCV no disponible</span>
+            )}
           </div>
         </div>
 
@@ -175,7 +188,7 @@ export function DashboardView({
               <p className="text-xs text-slate-500">Distribución de gastos de {condo?.name || 'este conjunto'}</p>
             </div>
             <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-3 py-1 rounded-lg font-mono">
-              Total: ${grandTotalUsd.toFixed(2)} USD
+              Total: {usd(grandTotalUsd)} USD
             </span>
           </div>
 
@@ -194,7 +207,13 @@ export function DashboardView({
               <div className="text-right">
                 <p className="font-bold text-slate-900 text-sm">${totalOrdinaryUsd.toFixed(2)} USD</p>
                 <p className="text-xs text-slate-500 font-mono">
-                  ≈ Bs. {(totalOrdinaryUsd * rateNum).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                  {rateNum === null ? (
+                    <span className="text-slate-400">Tasa BCV no disponible</span>
+                  ) : (
+                    `≈ Bs. ${(totalOrdinaryUsd * rateNum).toLocaleString('es-VE', {
+                      minimumFractionDigits: 2,
+                    })}`
+                  )}
                 </p>
               </div>
             </div>
@@ -213,7 +232,13 @@ export function DashboardView({
               <div className="text-right">
                 <p className="font-bold text-amber-900 text-sm">${totalExtraordinaryUsd.toFixed(2)} USD</p>
                 <p className="text-xs text-slate-500 font-mono">
-                  ≈ Bs. {(totalExtraordinaryUsd * rateNum).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                  {rateNum === null ? (
+                    <span className="text-slate-400">Tasa BCV no disponible</span>
+                  ) : (
+                    `≈ Bs. ${(totalExtraordinaryUsd * rateNum).toLocaleString('es-VE', {
+                      minimumFractionDigits: 2,
+                    })}`
+                  )}
                 </p>
               </div>
             </div>

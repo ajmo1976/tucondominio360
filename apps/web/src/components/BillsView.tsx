@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { BillDetailModal } from './BillDetailModal';
 import { fetchWithAuth } from '../lib/api';
+import { usd, bcvRate as fmtBcv } from '../lib/format';
 import { useCondoReserveFundRate, formatReserveFundRate } from '../lib/useCondoReserveFundRate';
 
 interface BillsViewProps {
@@ -39,15 +40,32 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
   const reserveFundRate = useCondoReserveFundRate(condoId);
   const reserveFundRateLabel = formatReserveFundRate(reserveFundRate);
 
-  // Formulario nuevo periodo mensual
+  // Formulario nuevo periodo mensual.
+  // Las fechas por defecto se derivan del mes siguiente al actual, no de un
+  // mes fijo cableado: el próximo período siempre es el que corresponde.
+  const defaultPeriod = (() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 2; // mes actual + 1
+    const year = m > 12 ? y + 1 : y;
+    const month = m > 12 ? m - 12 : m;
+    const lastDay = new Date(year, month, 0).getDate();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return {
+      periodYear: year,
+      periodMonth: month,
+      startDate: `${year}-${pad(month)}-01`,
+      endDate: `${year}-${pad(month)}-${pad(lastDay)}`,
+      issueDate: `${year}-${pad(month)}-05`,
+      dueDate: `${year}-${pad(month)}-${pad(Math.min(15, lastDay))}`,
+    };
+  })();
+
   const [newPeriodForm, setNewPeriodForm] = useState({
-    periodYear: 2026,
-    periodMonth: 11,
-    startDate: '2026-11-01',
-    endDate: '2026-11-30',
-    issueDate: '2026-11-05',
-    dueDate: '2026-11-15',
-    bcvExchangeRate: Number(bcvRate) || 36.85,
+    ...defaultPeriod,
+    // Sin tasa cableada: se toma la BCV vigente, y si aún no está disponible
+    // el backend la resuelve al crear el período.
+    bcvExchangeRate: Number(bcvRate) || 0,
   });
 
   const loadPeriods = async () => {
@@ -233,13 +251,13 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
                       <div>
                         <span className="text-slate-400 block text-[11px]">Gastos Ordinarios:</span>
                         <span className="font-semibold text-slate-800 font-mono">
-                          ${Number(p.total_ordinary_usd || 0).toFixed(2)} USD
+                          {usd(p.total_ordinary_usd)} USD
                         </span>
                       </div>
                       <div>
                         <span className="text-slate-400 block text-[11px]">Gastos Extraordinarios:</span>
                         <span className="font-semibold text-amber-800 font-mono">
-                          ${Number(p.total_extraordinary_usd || 0).toFixed(2)} USD
+                          {usd(p.total_extraordinary_usd)} USD
                         </span>
                       </div>
                       <div>
@@ -247,13 +265,13 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
                           Fondo de Reserva ({reserveFundRateLabel}%):
                         </span>
                         <span className="font-semibold text-slate-800 font-mono">
-                          ${Number(p.reserve_fund_usd || 0).toFixed(2)} USD
+                          {usd(p.reserve_fund_usd)} USD
                         </span>
                       </div>
                       <div>
                         <span className="text-slate-400 block text-[11px]">Tasa Oficial BCV:</span>
                         <span className="font-semibold text-emerald-800 font-mono">
-                          Bs. {Number(p.bcv_exchange_rate || 36.85).toFixed(4)}
+                          Bs. {fmtBcv(p.bcv_exchange_rate)}
                         </span>
                       </div>
                     </div>
@@ -269,7 +287,9 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
                     </div>
 
                     <div className="flex items-center text-xs font-bold text-emerald-600 group-hover:translate-x-1 transition gap-1">
-                      <span>Ver Detalle de Inmuebles ({p.total_bills_count || 8} Aptos)</span>
+                      <span>
+                        Ver Detalle de Inmuebles ({Number(p.total_bills_count || 0)} Aptos)
+                      </span>
                       <ChevronRight className="w-4 h-4" />
                     </div>
                   </div>
@@ -327,13 +347,13 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
             <div>
               <span className="text-slate-400 block text-[11px] uppercase font-semibold">1. Gastos Ordinarios</span>
               <span className="text-base font-bold text-white font-mono">
-                ${Number(selectedPeriod.total_ordinary_usd || 1000).toFixed(2)} USD
+                {usd(selectedPeriod.total_ordinary_usd)} USD
               </span>
             </div>
             <div>
               <span className="text-amber-400 block text-[11px] uppercase font-semibold">2. Gastos Extraordinarios</span>
               <span className="text-base font-bold text-amber-300 font-mono">
-                ${Number(selectedPeriod.total_extraordinary_usd || 250).toFixed(2)} USD
+                {usd(selectedPeriod.total_extraordinary_usd)} USD
               </span>
             </div>
             <div>
@@ -341,13 +361,13 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
                 3. Fondo de Reserva ({reserveFundRateLabel}%)
               </span>
               <span className="text-base font-bold text-white font-mono">
-                ${Number(selectedPeriod.reserve_fund_usd || 0).toFixed(2)} USD
+                {usd(selectedPeriod.reserve_fund_usd)} USD
               </span>
             </div>
             <div>
               <span className="text-emerald-400 block text-[11px] uppercase font-semibold">Total a Repartir</span>
               <span className="text-base font-black text-emerald-300 font-mono">
-                ${Number(selectedPeriod.grand_total_usd || 1350).toFixed(2)} USD
+                {usd(selectedPeriod.grand_total_usd)} USD
               </span>
             </div>
           </div>
@@ -377,20 +397,29 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
                         {b.bill_number}
                       </td>
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-slate-800">Apto. {b.unit_code}</div>
-                        <div className="text-[11px] text-slate-400">{b.building_name || 'Torre A'} · Piso {b.floor || '1'}</div>
+                        <div className="font-semibold text-slate-800">{b.unit_code}</div>
+                        <div className="text-[11px] text-slate-400">
+                          {[
+                            b.building_name || null,
+                            b.floor !== null && b.floor !== undefined && b.floor !== ''
+                              ? `Piso ${b.floor}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ') || '—'}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-center font-mono font-semibold text-emerald-800">
                         {Number(b.aliquot_percentage).toFixed(5)}%
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono text-slate-800">
-                        ${Number(b.ordinary_share_usd || 125).toFixed(2)}
+                        {usd(b.ordinary_share_usd)}
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono text-amber-800">
-                        ${Number(b.extraordinary_share_usd || 31.25).toFixed(2)}
+                        {usd(b.extraordinary_share_usd)}
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono text-slate-700">
-                        ${Number(b.reserve_fund_usd || 0).toFixed(2)}
+                        {usd(b.reserve_fund_usd)}
                       </td>
                       <td className="py-3.5 px-4 text-right font-bold text-slate-900 font-mono">
                         ${Number(b.total_due_usd).toFixed(2)}

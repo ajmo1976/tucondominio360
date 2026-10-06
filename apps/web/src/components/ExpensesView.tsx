@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Tag, DollarSign, Receipt, FileText, CheckCircle2, AlertTriangle, RefreshCw, Edit, Trash2, X } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
+import { toNum, usd, bcvRateNum } from '../lib/format';
 
 interface ExpensesViewProps {
   bcvRate: string;
@@ -11,6 +12,10 @@ interface ExpensesViewProps {
 }
 
 export function ExpensesView({ bcvRate, condoId, onExpenseAdded }: ExpensesViewProps) {
+  // Tasa BCV vigente. Antes se caía a 36.85 cuando no había tasa, lo que
+  // guardaba un monto convertido con una tasa vieja. Si no hay tasa, queda en
+  // null y el backend la resuelve al registrar el gasto.
+  const rateNum = bcvRateNum(bcvRate);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [billingPeriods, setBillingPeriods] = useState<any[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
@@ -35,7 +40,7 @@ export function ExpensesView({ bcvRate, condoId, onExpenseAdded }: ExpensesViewP
     currency: 'USD',
     amountOriginal: '',
     installmentTotal: 1,
-    exchangeRate: Number(bcvRate) || 36.85,
+    exchangeRate: rateNum ?? 0,
   });
 
   const [editingExpense, setEditingExpense] = useState<any | null>(null);
@@ -106,7 +111,8 @@ export function ExpensesView({ bcvRate, condoId, onExpenseAdded }: ExpensesViewP
         body: JSON.stringify({
           ...formData,
           amountOriginal: Number(formData.amountOriginal),
-          exchangeRate: Number(bcvRate) || 36.85,
+          // Tasa vigente; si no hay, el backend la toma de la BCV.
+          exchangeRate: rateNum ?? undefined,
         }),
       });
       setSuccessMsg('¡Gasto registrado con éxito en la relación del mes!');
@@ -146,7 +152,7 @@ export function ExpensesView({ bcvRate, condoId, onExpenseAdded }: ExpensesViewP
         body: JSON.stringify({
           ...editForm,
           amountOriginal: Number(editForm.amountOriginal),
-          exchangeRate: Number(bcvRate) || 36.85,
+          exchangeRate: rateNum ?? undefined,
           currency: 'USD',
         }),
       });
@@ -311,9 +317,18 @@ export function ExpensesView({ bcvRate, condoId, onExpenseAdded }: ExpensesViewP
         {/* Gran Total */}
         <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-300 shadow-sm">
           <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Total Relación Mes</span>
-          <p className="text-xl font-black text-emerald-950 mt-1">${grandTotalUsd.toFixed(2)} USD</p>
+          <p className="text-xl font-black text-emerald-950 mt-1">{usd(grandTotalUsd)} USD</p>
           <p className="text-[11px] text-emerald-700 font-mono">
-            ≈ Bs. {(grandTotalUsd * (Number(bcvRate) || 36.85)).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+            {rateNum === null ? (
+              'Tasa BCV no disponible'
+            ) : (
+              <>
+                ≈ Bs.{' '}
+                {(grandTotalUsd * rateNum).toLocaleString('es-VE', {
+                  minimumFractionDigits: 2,
+                })}
+              </>
+            )}
           </p>
         </div>
       </div>

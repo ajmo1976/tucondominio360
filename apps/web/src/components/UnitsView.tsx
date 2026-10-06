@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Building, User, Phone, CheckCircle2, ShieldCheck, Edit, Plus, X, Mail, Trash2 } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
+import { toNum } from '../lib/format';
 
 interface UnitsViewProps {
   units: any[];
@@ -45,7 +46,9 @@ export function UnitsView({ units, condoId, onRefreshUnits }: UnitsViewProps) {
     unitCode: '',
     unitType: 'APARTMENT',
     floor: '1',
-    aliquotPercentage: '12.5',
+    // Sin alícuota por defecto: se exige la real de la residencia. Antes venía
+    // 12.5 cableado, que es la alícuota de un apartamento de otra residencia.
+    aliquotPercentage: '',
     currentBalanceUsd: '0',
     hasGasService: true,
     hasParking: false,
@@ -65,9 +68,12 @@ export function UnitsView({ units, condoId, onRefreshUnits }: UnitsViewProps) {
     role: 'OWNER',
   });
 
-  const totalAliquot = units
-    ? units.reduce((acc, u) => acc + Number(u.aliquot_percentage || 0), 0)
-    : 100;
+  // Suma real de alícuotas de los inmuebles de esta residencia. Antes caía a
+  // 100 cuando no había lista, lo que hacía creer que el reparto cuadraba.
+  const totalAliquot = units.reduce(
+    (acc, u) => acc + (toNum(u.aliquot_percentage) ?? 0),
+    0,
+  );
 
   const handleOpenEditOwner = (occupant: any, unit: any) => {
     const names = occupant.name ? occupant.name.split(' ') : ['', ''];
@@ -88,7 +94,7 @@ export function UnitsView({ units, condoId, onRefreshUnits }: UnitsViewProps) {
         method: 'PATCH',
         body: JSON.stringify(ownerForm),
       });
-      setNotification(`¡Datos del propietario de Apto ${editingOwner.unitCode} actualizados con éxito!`);
+      setNotification(`¡Datos del propietario de ${editingOwner.unitCode} actualizados con éxito!`);
       setEditingOwner(null);
       onRefreshUnits();
       setTimeout(() => setNotification(null), 4000);
@@ -155,7 +161,7 @@ export function UnitsView({ units, condoId, onRefreshUnits }: UnitsViewProps) {
         unitCode: '',
         unitType: 'APARTMENT',
         floor: '1',
-        aliquotPercentage: '12.5',
+        aliquotPercentage: '',
         currentBalanceUsd: '0',
         hasGasService: true,
         hasParking: false,
@@ -191,7 +197,7 @@ export function UnitsView({ units, condoId, onRefreshUnits }: UnitsViewProps) {
         method: 'POST',
         body: JSON.stringify(newOwnerForm),
       });
-      setNotification(`¡Propietario asignado exitosamente al apartamento ${selectedUnitForNewOwner.unit_code}!`);
+      setNotification(`¡Propietario asignado exitosamente al inmueble ${selectedUnitForNewOwner.unit_code}!`);
       setShowAddOwnerModal(false);
       setSelectedUnitForNewOwner(null);
       onRefreshUnits();
@@ -246,7 +252,7 @@ export function UnitsView({ units, condoId, onRefreshUnits }: UnitsViewProps) {
               >
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-lg font-bold text-slate-900 font-mono">Apto {unit.unit_code}</span>
+                    <span className="text-lg font-bold text-slate-900 font-mono">{unit.unit_code}</span>
                     <button
                       onClick={() => handleOpenEditUnit(unit)}
                       className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 transition"
@@ -504,7 +510,7 @@ export function UnitsView({ units, condoId, onRefreshUnits }: UnitsViewProps) {
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
               <h3 className="font-bold text-slate-900 text-base">
-                Editar Propietario (Apto. {editingOwner.unitCode})
+                Editar Propietario ({editingOwner.unitCode})
               </h3>
               <button onClick={() => setEditingOwner(null)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
@@ -740,7 +746,7 @@ export function UnitsView({ units, condoId, onRefreshUnits }: UnitsViewProps) {
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
               <h3 className="font-bold text-slate-900 text-base">
-                Incluir Propietario a Apto {selectedUnitForNewOwner.unit_code}
+                Incluir Propietario a {selectedUnitForNewOwner.unit_code}
               </h3>
               <button onClick={() => setShowAddOwnerModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />

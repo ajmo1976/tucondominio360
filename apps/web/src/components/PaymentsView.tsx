@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Check, X, Smartphone, ArrowDownRight, Plus, RefreshCw, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
+import { toNum, usd, bcvRateNum } from '../lib/format';
 
 interface PaymentsViewProps {
   payments: any[];
@@ -16,19 +17,53 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  // Inmuebles y cuentas de ESTA residencia. El formulario de pago usaba un
+  // id de inmueble de El Ávila fijo, así que al reportar desde otra
+  // residencia el pago quedaba apuntando a un inmueble ajeno.
+  const [units, setUnits] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!condoId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [u, a] = await Promise.all([
+          fetchWithAuth(`/condos/${condoId}/units`).catch(() => []),
+          fetchWithAuth(`/condos/${condoId}/bank-accounts`).catch(() => []),
+        ]);
+        if (cancelled) return;
+        const unitList = Array.isArray(u) ? u : [];
+        const accountList = Array.isArray(a) ? a : [];
+        setUnits(unitList);
+        setAccounts(accountList);
+        setFormData((prev) => ({
+          ...prev,
+          propertyUnitId: prev.propertyUnitId || unitList[0]?.id || '',
+          bankAccountId: prev.bankAccountId || accountList[0]?.id || '',
+        }));
+      } catch (err) {
+        console.error(err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [condoId]);
+
   // Formulario de Pago Móvil
   const [formData, setFormData] = useState({
-    propertyUnitId: '66666666-6666-6666-6666-666666666601', // A-11
-    bankAccountId: '77777777-7777-7777-7777-777777777701', // Banesco
+    propertyUnitId: '',
+    bankAccountId: '',
     paymentMethod: 'PAGO_MOVIL',
     referenceNumber: '',
     paymentDate: new Date().toISOString().split('T')[0],
-    originBank: '0105',
-    originPhone: '04149998877',
-    originDocNumber: '16789456',
+    originBank: '',
+    originPhone: '',
+    originDocNumber: '',
     currency: 'VES',
-    amountPaid: '4053.50',
-    notes: 'Pago mensual de condominio',
+    amountPaid: '',
+    notes: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -145,7 +180,7 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
                       <div className="font-mono text-slate-500 text-[11px]">Ref: #{p.reference_number}</div>
                     </td>
                     <td className="py-3.5 px-4">
-                      <div className="font-medium text-slate-800">{p.bank_name || 'Banesco'}</div>
+                      <div className="font-medium text-slate-800">{p.bank_name || '—'}</div>
                       <div className="text-[11px] text-slate-400 font-mono">0414-1234567</div>
                     </td>
                     <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
@@ -218,13 +253,49 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
 
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Apartamento</label>
-                <input
-                  type="text"
-                  disabled
-                  value="Apto A-11 (Torre A)"
-                  className="w-full bg-slate-100 border border-slate-200 rounded-lg p-2.5 text-slate-600 font-medium"
-                />
+                <label className="block font-semibold text-slate-700 mb-1">Inmueble</label>
+                <select
+                  required
+                  value={formData.propertyUnitId}
+                  onChange={(e) => setFormData({ ...formData, propertyUnitId: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
+                >
+                  <option value="">Selecciona el inmueble…</option>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.unit_code}
+                      {u.building_name ? ` · ${u.building_name}` : ''}
+                      {u.floor !== null && u.floor !== undefined ? ` · Piso ${u.floor}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {units.length === 0 && (
+                  <span className="text-[10px] text-amber-600">
+                    Esta residencia no tiene inmuebles registrados.
+                  </span>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Cuenta que recibe el pago</label>
+                <select
+                  required
+                  value={formData.bankAccountId}
+                  onChange={(e) => setFormData({ ...formData, bankAccountId: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
+                >
+                  <option value="">Selecciona la cuenta…</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.bank_name} ({a.bank_code}) · {a.account_number}
+                    </option>
+                  ))}
+                </select>
+                {accounts.length === 0 && (
+                  <span className="text-[10px] text-amber-600">
+                    Esta residencia no tiene cuenta bancaria registrada.
+                  </span>
+                )}
               </div>
 
               <div>
@@ -255,7 +326,20 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Equivalente ($)</label>
                   <div className="w-full bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-emerald-900 font-bold font-mono">
-                    ≈ ${(Number(formData.amountPaid) / (Number(bcvRate) || 36.85)).toFixed(2)} USD
+                    {(() => {
+                      // La conversión usa la tasa vigente; sin tasa no se
+                      // muestra un equivalente calculado con una tasa vieja.
+                      const rate = bcvRateNum(bcvRate);
+                      const paid = toNum(formData.amountPaid);
+                      if (rate === null || paid === null) {
+                        return (
+                          <span className="text-slate-500 font-normal">
+                            {rate === null ? 'Tasa BCV no disponible' : 'Ingresa el monto en Bs.'}
+                          </span>
+                        );
+                      }
+                      return `≈ ${usd(paid / rate)} USD`;
+                    })()}
                   </div>
                 </div>
               </div>
