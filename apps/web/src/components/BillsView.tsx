@@ -63,7 +63,11 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
   };
 
   useEffect(() => {
+    // Al cambiar de residencia se limpia el período Y los recibos del período:
+    // sin esto los recibos de la residencia anterior quedan en memoria y
+    // pueden mostrarse bajo el encabezado de la nueva (mezcla de datos).
     setSelectedPeriod(null);
+    setPeriodBills([]);
     loadPeriods();
   }, [condoId]);
 

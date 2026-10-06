@@ -87,7 +87,13 @@ export function ExpensesView({ bcvRate, condoId, onExpenseAdded }: ExpensesViewP
   };
 
   useEffect(() => {
+    // Se vacían todos los datos de la residencia anterior antes de pedir los
+    // nuevos: evita que los gastos, categorías y períodos de una residencia
+    // queden visibles bajo el encabezado de otra (mezcla de datos).
     setSelectedPeriodId('');
+    setExpenses([]);
+    setCategories([]);
+    setBillingPeriods([]);
     loadExpenses();
   }, [condoId]);
 
