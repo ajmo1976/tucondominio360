@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, Printer, Download, AlertTriangle, Users, Zap, Flame, Ban, Edit3 } from 'lucide-react';
+import { X, Printer, Download, Users, Zap, Flame, Ban, Edit3, AlertTriangle } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { useCondoRecord, formatReserveFundRate, formatCondoLocation } from '../lib/useCondoReserveFundRate';
 
@@ -271,7 +271,6 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
       if (renderHeight <= availableHeight) {
         pdf.addImage(imgData, 'JPEG', posX, posY, renderWidth, renderHeight);
       } else {
-        // En caso de listas extremadamente largas (más de 20 gastos), se pagina limpiamente
         let heightLeft = renderHeight;
         let position = margin;
 
@@ -349,13 +348,13 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                     </span>
                   )}
                 </td>
-                <td className="py-1 px-2 text-right font-mono tabular-nums text-slate-600">
+                <td className="py-1 px-2 text-right font-sans tabular-nums text-slate-600">
                   ${amount.toFixed(2)}
                 </td>
-                <td className="py-1 px-2 text-right font-mono tabular-nums font-bold text-slate-900">
+                <td className="py-1 px-2 text-right font-sans tabular-nums font-bold text-slate-900">
                   {isGas && !hasGas ? '$0.00' : `$${shareUsd.toFixed(2)}`}
                 </td>
-                <td className="py-1 px-2 text-right font-mono tabular-nums text-slate-600">
+                <td className="py-1 px-2 text-right font-sans tabular-nums text-slate-600">
                   {isGas && !hasGas ? 'Bs. 0,00' : ves(shareUsd * rate)}
                 </td>
               </tr>
@@ -376,14 +375,14 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between print:bg-slate-900 print:text-white print:px-5 print:py-3.5">
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-sm tracking-tight">
+              <h3 className="font-bold text-sm tracking-normal">
                 AVISO DE COBRO · {periodLabel.toUpperCase()}
               </h3>
               <span className={`px-2 py-0.5 rounded text-[9.5px] font-bold ${hasGas ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
                 {hasGas ? 'CON GAS' : 'SIN GAS'}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
+            <p className="text-[11px] text-slate-400 mt-0.5 font-sans">
               N° {data.bill_number} · Emisión: {issueDateFmt}
             </p>
           </div>
@@ -422,14 +421,14 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
             </div>
           )}
 
-          {/* Identificación Condominio e Inmueble */}
+          {/* Identificación Condominio e Inmueble (Equilibrada en 2 Columnas) */}
           <div className="grid grid-cols-2 gap-3 pb-3 border-b border-slate-200">
             <div>
               <p className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
                 Condominio Administrado
               </p>
               <p className="font-bold text-slate-900 text-[13px] leading-snug">{condo?.name || '—'}</p>
-              <p className="text-slate-600 font-mono text-[10.5px]">RIF: {condo?.rif || '—'}</p>
+              <p className="text-slate-600 text-[10.5px]">RIF: {condo?.rif || '—'}</p>
               <p className="text-slate-500 text-[10.5px] leading-tight">{formatCondoLocation(condo) || '—'}</p>
             </div>
             <div className="text-right">
@@ -439,7 +438,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
               <p className="font-bold text-slate-900 text-[13px] leading-snug">
                 {data.unit_code}{data.building_name ? ` · ${data.building_name}` : ''}
               </p>
-              <p className="font-bold text-emerald-700 font-mono text-[11px]">
+              <p className="font-bold text-emerald-700 text-[11px] tabular-nums font-sans">
                 Alícuota Legal: {aliquot.toFixed(5)}%
               </p>
               <div className="mt-0.5 flex items-center justify-end gap-1">
@@ -452,9 +451,9 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
               {/* Tasa Oficial BCV */}
               <div className="mt-0.5 flex flex-col items-end">
                 <div className="flex items-center gap-1">
-                  <p className="text-slate-600 font-mono text-[10.5px]">
+                  <p className="text-slate-600 text-[10.5px]">
                     Tasa Oficial BCV:{' '}
-                    <span className="font-bold text-slate-900">Bs. {rate.toFixed(4)} / USD</span>{' '}
+                    <span className="font-bold text-slate-900 font-sans tabular-nums">Bs. {rate.toFixed(4)} / USD</span>{' '}
                     <span className="text-[9.5px] text-slate-400">({rateDateFmt})</span>
                   </p>
                   <button
@@ -479,7 +478,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                       step="0.0001"
                       value={overrideRate !== '' ? overrideRate : rate.toFixed(4)}
                       onChange={(e) => setOverrideRate(e.target.value)}
-                      className="w-20 px-1.5 py-0.5 border border-slate-300 rounded font-mono text-right text-[11px]"
+                      className="w-20 px-1.5 py-0.5 border border-slate-300 rounded font-sans text-right text-[11px]"
                       placeholder="872.39"
                     />
                     {currentLiveRate > 0 && (
@@ -513,7 +512,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                 <Users className="w-3.5 h-3.5 text-blue-600" />
                 I. Trabajador Residencial
               </span>
-              <span className="font-mono text-slate-900 text-[10.5px]">
+              <span className="font-sans tabular-nums text-slate-900 text-[10.5px]">
                 Sub-total I: ${subtotal1Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal1Share.toFixed(2)}
               </span>
             </div>
@@ -527,7 +526,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                 <Zap className="w-3.5 h-3.5 text-emerald-600" />
                 II. Servicios Fijos
               </span>
-              <span className="font-mono text-slate-900 text-[10.5px]">
+              <span className="font-sans tabular-nums text-slate-900 text-[10.5px]">
                 Sub-total II: ${subtotal2Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal2Share.toFixed(2)}
               </span>
             </div>
@@ -541,29 +540,29 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                 III. Adicionales, Imprevistos y Cuotas Extras
               </span>
-              <span className="font-mono text-slate-900 text-[10.5px]">
+              <span className="font-sans tabular-nums text-slate-900 text-[10.5px]">
                 Sub-total III: ${subtotal3Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal3Share.toFixed(2)}
               </span>
             </div>
             <ExpenseTable rows={block3Items} emptyText="Sin gastos adicionales o extraordinarios en este período." />
           </div>
 
-          {/* BLOQUE DE TOTALES Y LIQUIDACIÓN AL PIE (Compacto y Elegante) */}
+          {/* BLOQUE DE TOTALES Y LIQUIDACIÓN AL PIE (Sin artefactos de canvas) */}
           <div className="bg-slate-900 text-white rounded-xl p-3.5 space-y-2 shadow-sm print:bg-slate-900 print:text-white print:rounded-lg">
             <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <div>
-                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Total Gastos (I + II + III)</span>
-                <p className="text-xs font-bold font-mono">${totalGastosGasto.toFixed(2)} USD</p>
+                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-normal">Total Gastos (I + II + III)</span>
+                <p className="text-xs font-bold font-sans tabular-nums">${totalGastosGasto.toFixed(2)} USD</p>
               </div>
               <div className="text-right">
-                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Cuota Total Gastos Apto</span>
-                <p className="text-xs font-bold font-mono text-emerald-400">${aptoTotalGastosShare.toFixed(2)} USD</p>
+                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-normal">Cuota Total Gastos Apto</span>
+                <p className="text-xs font-bold font-sans tabular-nums text-emerald-400">${aptoTotalGastosShare.toFixed(2)} USD</p>
               </div>
             </div>
 
             <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <div>
-                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">
+                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-normal">
                   Aporte al Fondo de Reserva ({reserveFundRateLabel}%)
                 </span>
                 <p className="text-[10px] text-slate-300">
@@ -571,20 +570,20 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                 </p>
               </div>
               <div className="text-right">
-                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Cuota Reserva Apto</span>
-                <p className="text-xs font-bold font-mono text-amber-300">${aptoReserveUsd.toFixed(2)} USD</p>
+                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-normal">Cuota Reserva Apto</span>
+                <p className="text-xs font-bold font-sans tabular-nums text-amber-300">${aptoReserveUsd.toFixed(2)} USD</p>
               </div>
             </div>
 
             <div className="flex items-center justify-between pt-0.5">
               <div>
-                <p className="text-[9.5px] text-slate-400 uppercase tracking-wider font-bold">TOTAL A PAGAR</p>
-                <p className="text-lg font-black text-emerald-300 font-mono leading-tight">${totalAptoUsd.toFixed(2)} USD</p>
+                <p className="text-[9.5px] text-slate-400 uppercase tracking-normal font-bold">TOTAL A PAGAR</p>
+                <p className="text-lg font-black text-emerald-300 font-sans tabular-nums leading-tight">${totalAptoUsd.toFixed(2)} USD</p>
               </div>
               <div className="text-right">
-                <p className="text-[9.5px] text-slate-400 uppercase tracking-wider font-bold">Equivalencia Moneda Nacional</p>
-                <p className="text-base font-black text-white font-mono leading-tight">{ves(totalAptoVes)}</p>
-                <p className="text-[9px] text-slate-400 font-mono mt-0.5">
+                <p className="text-[9.5px] text-slate-400 uppercase tracking-normal font-bold">Equivalencia Moneda Nacional</p>
+                <p className="text-base font-black text-white font-sans tabular-nums leading-tight">{ves(totalAptoVes)}</p>
+                <p className="text-[9px] text-slate-400 font-sans tabular-nums mt-0.5">
                   Tasa Oficial BCV ({rateDateFmt}): Bs. {rate.toFixed(4)} / USD
                 </p>
               </div>
@@ -598,7 +597,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
               {bank ? (
                 <div className="mt-0.5 space-y-0.5">
                   <p className="font-bold text-slate-900 leading-none">
-                    {bank.bank_name} ({bank.bank_code}) · <span className="font-mono text-slate-700">{bank.account_number}</span> ({bank.account_type})
+                    {bank.bank_name} ({bank.bank_code}) · <span className="font-sans tabular-nums text-slate-700">{bank.account_number}</span> ({bank.account_type})
                   </p>
                   <p className="text-slate-600 text-[10px] leading-tight">
                     Titular: {bank.account_holder_name} (RIF: {bank.account_holder_rif})
