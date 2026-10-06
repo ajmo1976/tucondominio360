@@ -1,0 +1,14 @@
+{
+  "name": "tucondominio360-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev --workspace=tucondominio360-api",
+    "dev:web": "npm run dev --workspace=tucondominio360-web",
+    "build": "npm run build --workspaces --if-present"
+  }
+}
