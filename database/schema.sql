@@ -346,6 +346,12 @@ CREATE TABLE billing_periods (
     CONSTRAINT uq_condo_period UNIQUE (condo_id, period_year, period_month)
 );
 
+CREATE TYPE expense_distribution_type AS ENUM (
+    'BY_ALICUOTA',
+    'EQUAL_PARTS_FILTERED',
+    'DIRECT_FIXED_AMOUNT'
+);
+
 CREATE TABLE expenses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     condo_id UUID NOT NULL REFERENCES condos(id) ON DELETE CASCADE,
@@ -363,6 +369,8 @@ CREATE TABLE expenses (
     amount_usd NUMERIC(14,2) NOT NULL,
     amount_ves NUMERIC(14,2) NOT NULL,
     target_building_id UUID REFERENCES buildings(id) ON DELETE SET NULL, -- Si es gasto exclusivo de una torre
+    distribution_type expense_distribution_type NOT NULL DEFAULT 'BY_ALICUOTA',
+    exclude_from_reserve BOOLEAN NOT NULL DEFAULT FALSE,
     invoice_file_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

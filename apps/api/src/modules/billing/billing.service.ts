@@ -306,9 +306,10 @@ export class BillingService {
     const totalGasUsd = Number(expRes.rows[0].total_gas_usd);
 
     const reserveFundRate = Number(period.reserve_fund_rate || 10.0);
+    // El fondo de reserva se calcula excluyendo el gas (reembolso directo de servicio)
+    const reserveBaseUsd = totalOrdinaryUsd - totalGasUsd;
+    const reserveFundUsd = Number(((reserveBaseUsd * reserveFundRate) / 100).toFixed(2));
     const grandTotalUsd = totalOrdinaryUsd + totalExtraordinaryUsd;
-    // Fondo de reserva = Total de la relación del mes * el porcentaje (%) configurado en la residencia
-    const reserveFundUsd = Number(((grandTotalUsd * reserveFundRate) / 100).toFixed(2));
     const bcvRate = Number(period.bcv_exchange_rate || 0);
     const grandTotalVes = Number((grandTotalUsd * bcvRate).toFixed(2));
 
@@ -392,15 +393,31 @@ export class BillingService {
       reserveFundUsd,
       unitsRes.rows.map((u) => Number(u.aliquot_percentage || 0)),
     );
-    const gasShares = canSplitGas
-      ? allocate(
-          totalGasUsd,
-          unitsRes.rows.map((u) =>
-            u.has_gas_service === true ? Number(u.aliquot_percentage || 0) : 0,
-          ),
-          true,
-        )
-      : unitsRes.rows.map(() => 0);
+    // EQUAL_PARTS_FILTERED para el gas: dividido a partes iguales únicamente
+    // entre las unidades que disfrutan del servicio, con ajuste de centavos.
+    const gasShares = (() => {
+      const shares = unitsRes.rows.map(() => 0);
+      if (totalGasUsd <= 0 || gasUnits.length === 0) return shares;
+
+      const equalPart = Number((totalGasUsd / gasUnits.length).toFixed(2));
+      let currentSum = 0;
+
+      for (let i = 0; i < unitsRes.rows.length; i++) {
+        if (unitsRes.rows[i].has_gas_service === true) {
+          shares[i] = equalPart;
+          currentSum += equalPart;
+        }
+      }
+
+      const drift = Number((totalGasUsd - currentSum).toFixed(2));
+      if (drift !== 0) {
+        const firstGasIdx = unitsRes.rows.findIndex((u) => u.has_gas_service === true);
+        if (firstGasIdx >= 0) {
+          shares[firstGasIdx] = Number((shares[firstGasIdx] + drift).toFixed(2));
+        }
+      }
+      return shares;
+    })();
 
     for (let idx = 0; idx < unitsRes.rows.length; idx++) {
       const unit = unitsRes.rows[idx];
