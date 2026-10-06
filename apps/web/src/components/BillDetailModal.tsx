@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, Printer, RefreshCw, AlertTriangle, Users, Zap, Flame, ShieldCheck, Ban } from 'lucide-react';
+import { X, Printer, RefreshCw, AlertTriangle, Users, Zap, Flame, Ban } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { useCondoRecord, formatReserveFundRate, formatCondoLocation } from '../lib/useCondoReserveFundRate';
 
@@ -16,6 +16,18 @@ const MONTH_NAMES = [
 ];
 
 const ves = (n: number) => `Bs. ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export const formatDateEs = (d?: string | null) => {
+  if (!d) return '—';
+  const str = String(d);
+  const iso = str.split('T')[0];
+  const parts = iso.split('-');
+  if (parts.length === 3) {
+    const [y, m, day] = parts;
+    return `${day.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+  }
+  return str;
+};
 
 export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   const condo = useCondoRecord(bill?.condo_id);
@@ -65,10 +77,18 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
 
   const aliquot = Number(data.aliquot_percentage || 0);
   const rate = Number(data.exchange_rate_emission || 0);
-  const issueDate = data.issue_date || data.created_at?.split('T')[0] || new Date().toISOString().split('T')[0];
 
-  // 1. Estatus del Gas
-  const hasGas = data.has_gas_service === true;
+  // Fechas formateadas en español limpio DD/MM/AAAA
+  const rawIssueDate = data.issue_date || data.created_at || null;
+  const issueDateFmt = formatDateEs(rawIssueDate);
+  const rateDateFmt = formatDateEs(data.issue_date || data.created_at || data.due_date);
+
+  // 1. Estatus del Gas robusto (revisando en billDetail, data y bill)
+  const hasGas = Boolean(
+    billDetail?.has_gas_service === true ||
+    data?.has_gas_service === true ||
+    bill?.has_gas_service === true
+  );
 
   // Clasificación de Gastos en 3 Bloques Tradicionales
   const classifyExpense = (item: any) => {
@@ -121,7 +141,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     }
 
     const matched = billDetail?.items?.find((bi: any) => bi.description === item.description);
-    if (matched && matched.unit_share_usd !== undefined) {
+    if (matched && matched.unit_share_usd !== undefined && matched.unit_share_usd !== null) {
       return Number(matched.unit_share_usd);
     }
     const amount = Number(item.amount_usd || 0);
@@ -145,7 +165,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     subtotal1Share + subtotal2Share + subtotal3Share,
   );
 
-  // Fondo de reserva (20% excluyendo gas)
+  // Fondo de reserva (excluyendo gas)
   const gasGastoTotal = expenses
     .filter((e) => (e.category_code || '').toUpperCase() === 'GAS' || (e.description || '').toLowerCase().includes('gas') || e.exclude_from_reserve)
     .reduce((acc, e) => acc + Number(e.amount_usd || 0), 0);
@@ -159,6 +179,10 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   const totalAptoVes = totalAptoUsd * rate;
 
   const bank = bankAccounts[0] ?? null;
+
+  const handlePrint = () => {
+    window.print();
+  };
 
   const ExpenseTable = ({
     rows,
@@ -214,10 +238,10 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
-      <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6 print:shadow-none print:border-none print:m-0 print:max-w-none print:w-full">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto print:block">
+      <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6 print:shadow-none print:border-none print:m-0 print:max-w-none print:w-full print:rounded-none">
         {/* Cabecera del Aviso */}
-        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between print:bg-slate-900 print:text-print-black">
+        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between print:bg-slate-900 print:text-white print:px-6 print:py-4">
           <div>
             <h3 className="font-bold text-base tracking-tight flex items-center gap-2">
               <span>AVISO DE COBRO · {periodLabel.toUpperCase()}</span>
@@ -226,12 +250,12 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
               </span>
             </h3>
             <p className="text-xs text-slate-400">
-              N° {data.bill_number} · Emisión: {issueDate}
+              N° {data.bill_number} · Emisión: {issueDateFmt}
             </p>
           </div>
           <div className="flex items-center space-x-2 print:hidden">
             <button
-              onClick={() => window.print()}
+              onClick={handlePrint}
               className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition"
               title="Imprimir Recibo"
             >
@@ -240,6 +264,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
             <button
               onClick={onClose}
               className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition"
+              title="Cerrar Recibo"
             >
               <X className="w-5 h-5" />
             </button>
@@ -247,9 +272,9 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         </div>
 
         {/* Cuerpo del Recibo */}
-        <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-4">
+        <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-6 print:space-y-4">
           {loadError && (
-            <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+            <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded-lg print:hidden">
               {loadError}
             </div>
           )}
@@ -279,7 +304,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                 </span>
               </div>
               <p className="text-slate-500 font-mono mt-1">
-                Tasa Oficial BCV: Bs. {rate.toFixed(4)} / USD <span className="text-[10px] text-slate-400">(Fecha: {issueDate})</span>
+                Tasa Oficial BCV: Bs. {rate.toFixed(4)} / USD <span className="text-[10px] text-slate-400">(Fecha: {rateDateFmt})</span>
               </p>
             </div>
           </div>
@@ -327,7 +352,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE DE TOTALES Y LIQUIDACIÓN AL PIE */}
-          <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 shadow-md print:bg-slate-900 print:text-white">
+          <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 shadow-md print:bg-slate-900 print:text-white print:rounded-xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">Total Gastos (I + II + III)</span>
@@ -363,7 +388,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                 <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">Equivalencia en Moneda Nacional</p>
                 <p className="text-xl font-black text-white font-mono">{ves(totalAptoVes)}</p>
                 <p className="text-[10px] text-slate-300 font-mono mt-0.5">
-                  Tasa Oficial BCV ({issueDate}): Bs. {rate.toFixed(4)} / USD
+                  Tasa Oficial BCV ({rateDateFmt}): Bs. {rate.toFixed(4)} / USD
                 </p>
               </div>
             </div>

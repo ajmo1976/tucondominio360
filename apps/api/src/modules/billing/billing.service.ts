@@ -21,7 +21,7 @@ export class BillingService {
   async getBills(condoId: string, periodId?: string, unitId?: string) {
     let query = `
       SELECT cb.*, 
-             pu.unit_code, pu.unit_type, pu.floor, b.name as building_name,
+             pu.unit_code, pu.unit_type, pu.floor, pu.has_gas_service, b.name as building_name,
              bp.period_year, bp.period_month, bp.issue_date, bp.due_date
       FROM condo_bills cb
       JOIN property_units pu ON pu.id = cb.property_unit_id
