@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, Printer, RefreshCw, AlertTriangle, Building2, Landmark, Users, Zap, Shield } from 'lucide-react';
+import { X, Printer, RefreshCw, AlertTriangle, Users, Zap, Flame, ShieldCheck, Ban } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { useCondoRecord, formatReserveFundRate, formatCondoLocation } from '../lib/useCondoReserveFundRate';
 
@@ -65,6 +65,10 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
 
   const aliquot = Number(data.aliquot_percentage || 0);
   const rate = Number(data.exchange_rate_emission || 0);
+  const issueDate = data.issue_date || data.created_at?.split('T')[0] || new Date().toISOString().split('T')[0];
+
+  // 1. Estatus del Gas
+  const hasGas = data.has_gas_service === true;
 
   // Clasificación de Gastos en 3 Bloques Tradicionales
   const classifyExpense = (item: any) => {
@@ -73,7 +77,6 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     const desc = (item.description || '').toLowerCase();
     const name = (item.category_name || '').toLowerCase();
 
-    // Bloque I: Trabajador Residencial
     if (
       code === 'TR' ||
       code === 'NOM-CONS' ||
@@ -89,7 +92,6 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     ) {
       return 1;
     }
-    // Bloque III: Adicionales, Imprevistos y Cuotas Extras
     if (
       code === 'AICE' ||
       sub === 'EXTRAORDINARY' ||
@@ -97,7 +99,6 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     ) {
       return 3;
     }
-    // Bloque II: Servicios Fijos por defecto
     return 2;
   };
 
@@ -112,18 +113,20 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   const subtotal3Gasto = sumAmount(block3Items);
   const totalGastosGasto = subtotal1Gasto + subtotal2Gasto + subtotal3Gasto;
 
-  // Cálculo individual de cuotas por ítem
+  // Cálculo individual de cuotas por ítem condicionado al gas
   const getItemShare = (item: any) => {
+    const isGas = (item.category_code || '').toUpperCase() === 'GAS' || (item.description || '').toLowerCase().includes('gas');
+    if (isGas && !hasGas) {
+      return 0; // Si la unidad no tiene gas, la cuota es $0.00
+    }
+
     const matched = billDetail?.items?.find((bi: any) => bi.description === item.description);
     if (matched && matched.unit_share_usd !== undefined) {
       return Number(matched.unit_share_usd);
     }
     const amount = Number(item.amount_usd || 0);
-    const isGas = (item.category_code || '').toUpperCase() === 'GAS' || (item.description || '').toLowerCase().includes('gas');
-    const unitHasGas = data.has_gas_service ?? true;
     if (isGas) {
-      // 31 unidades estimado o partes iguales
-      return unitHasGas ? amount / 31 : 0;
+      return hasGas ? amount / 31 : 0;
     }
     return (amount * aliquot) / 100;
   };
@@ -183,15 +186,25 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         ) : (
           rows.map((item, idx) => {
             const amount = Number(item.amount_usd || 0);
+            const isGas = (item.category_code || '').toUpperCase() === 'GAS' || (item.description || '').toLowerCase().includes('gas');
             const shareUsd = getItemShare(item);
             return (
               <tr key={item.id ?? idx} className="hover:bg-slate-50/50 transition">
-                <td className="py-2 px-3 font-medium text-slate-800">{item.description || '—'}</td>
+                <td className="py-2 px-3 font-medium text-slate-800">
+                  {item.description || '—'}
+                  {isGas && !hasGas && (
+                    <span className="ml-2 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-semibold">
+                      Exento / No aplica
+                    </span>
+                  )}
+                </td>
                 <td className="py-2 px-3 text-right font-mono text-slate-600">${amount.toFixed(2)}</td>
                 <td className="py-2 px-3 text-right font-bold text-slate-900 font-mono">
-                  ${shareUsd.toFixed(2)}
+                  {isGas && !hasGas ? '$0.00' : `$${shareUsd.toFixed(2)}`}
                 </td>
-                <td className="py-2 px-3 text-right font-mono text-slate-500">{ves(shareUsd * rate)}</td>
+                <td className="py-2 px-3 text-right font-mono text-slate-500">
+                  {isGas && !hasGas ? 'Bs. 0,00' : ves(shareUsd * rate)}
+                </td>
               </tr>
             );
           })
@@ -201,17 +214,22 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
+      <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6 print:shadow-none print:border-none print:m-0 print:max-w-none print:w-full">
         {/* Cabecera del Aviso */}
-        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between print:bg-slate-900 print:text-print-black">
           <div>
-            <h3 className="font-bold text-base tracking-tight">Aviso de Cobro de Condominio</h3>
+            <h3 className="font-bold text-base tracking-tight flex items-center gap-2">
+              <span>AVISO DE COBRO · {periodLabel.toUpperCase()}</span>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${hasGas ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                {hasGas ? 'CON GAS' : 'SIN GAS'}
+              </span>
+            </h3>
             <p className="text-xs text-slate-400">
-              N° {data.bill_number} · Período Mensual {periodLabel}
+              N° {data.bill_number} · Emisión: {issueDate}
             </p>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 print:hidden">
             <button
               onClick={() => window.print()}
               className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition"
@@ -229,7 +247,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         </div>
 
         {/* Cuerpo del Recibo */}
-        <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto">
+        <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-4">
           {loadError && (
             <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded-lg">
               {loadError}
@@ -250,12 +268,19 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                 Unidad Inmobiliaria
               </p>
-              <p className="font-bold text-slate-900 text-sm">
-                {data.unit_code}
-                {data.building_name ? ` · ${data.building_name}` : ''}
+              <p className="font-bold text-slate-900 text-sm flex items-center justify-end gap-1.5">
+                <span>{data.unit_code}{data.building_name ? ` · ${data.building_name}` : ''}</span>
               </p>
               <p className="font-bold text-emerald-700 font-mono">Alícuota Legal: {aliquot.toFixed(5)}%</p>
-              <p className="text-slate-500 font-mono">Tasa Oficial BCV: Bs. {rate.toFixed(4)} / USD</p>
+              <div className="mt-1 flex items-center justify-end gap-1.5">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${hasGas ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
+                  {hasGas ? <Flame className="w-3 h-3 text-emerald-600" /> : <Ban className="w-3 h-3 text-slate-400" />}
+                  Servicio de Gas: {hasGas ? 'ACTIVO / INCLUIDO' : 'NO APLICA / EXCLUIDO'}
+                </span>
+              </div>
+              <p className="text-slate-500 font-mono mt-1">
+                Tasa Oficial BCV: Bs. {rate.toFixed(4)} / USD <span className="text-[10px] text-slate-400">(Fecha: {issueDate})</span>
+              </p>
             </div>
           </div>
 
@@ -302,7 +327,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE DE TOTALES Y LIQUIDACIÓN AL PIE */}
-          <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 shadow-md">
+          <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 shadow-md print:bg-slate-900 print:text-white">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">Total Gastos (I + II + III)</span>
@@ -337,7 +362,9 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
               <div className="text-right">
                 <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">Equivalencia en Moneda Nacional</p>
                 <p className="text-xl font-black text-white font-mono">{ves(totalAptoVes)}</p>
-                <p className="text-[10px] text-slate-400 font-mono mt-0.5">Tasa BCV oficial: Bs. {rate.toFixed(4)} / USD</p>
+                <p className="text-[10px] text-slate-300 font-mono mt-0.5">
+                  Tasa Oficial BCV ({issueDate}): Bs. {rate.toFixed(4)} / USD
+                </p>
               </div>
             </div>
           </div>

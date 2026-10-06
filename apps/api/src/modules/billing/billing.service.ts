@@ -49,7 +49,7 @@ export class BillingService {
   async getBillDetail(billId: string) {
     const billRes = await this.db.query(
       `SELECT cb.*, 
-              pu.unit_code, pu.unit_type, pu.floor, b.name as building_name,
+              pu.unit_code, pu.unit_type, pu.floor, pu.has_gas_service, b.name as building_name,
               c.name as condo_name, c.rif as condo_rif, c.address as condo_address,
               bp.period_year, bp.period_month, bp.issue_date, bp.due_date, bp.bcv_exchange_rate
        FROM condo_bills cb
