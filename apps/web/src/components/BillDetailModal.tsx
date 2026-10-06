@@ -206,27 +206,91 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     try {
       setIsGeneratingPdf(true);
       const element = document.getElementById('printable-bill-receipt');
-      if (!element) return;
+      if (!element) {
+        window.print();
+        return;
+      }
 
-      const html2pdfModule = await import('html2pdf.js');
-      const html2pdf = (html2pdfModule as any).default || html2pdfModule;
+      // Expandir contenedor scrollable para que capture la totalidad del recibo
+      const scrollableDiv = element.querySelector('.overflow-y-auto') as HTMLElement | null;
+      const prevMaxHeight = scrollableDiv?.style.maxHeight || '';
+      const prevOverflow = scrollableDiv?.style.overflow || '';
+      if (scrollableDiv) {
+        scrollableDiv.style.maxHeight = 'none';
+        scrollableDiv.style.overflow = 'visible';
+      }
+
+      const html2canvasModule = await import('html2canvas');
+      const html2canvas = (html2canvasModule as any).default || html2canvasModule;
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        ignoreElements: (el: Element) => el.getAttribute('data-html2canvas-ignore') === 'true',
+      });
+
+      // Restaurar estilos del contenedor
+      if (scrollableDiv) {
+        scrollableDiv.style.maxHeight = prevMaxHeight;
+        scrollableDiv.style.overflow = prevOverflow;
+      }
+
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'letter',
+      });
+
+      const pageWidth = 215.9; // Carta ancho (mm)
+      const pageHeight = 279.4; // Carta alto (mm)
+      const margin = 8;
+      const contentWidth = pageWidth - margin * 2;
+      const contentHeight = (canvas.height * contentWidth) / canvas.width;
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+      if (contentHeight <= pageHeight - margin * 2) {
+        // Cabe perfectamente en una sola página
+        pdf.addImage(imgData, 'JPEG', margin, margin, contentWidth, contentHeight);
+      } else {
+        // Soporte multipágina si el contenido es largo
+        let heightLeft = contentHeight;
+        let position = margin;
+
+        pdf.addImage(imgData, 'JPEG', margin, position, contentWidth, contentHeight);
+        heightLeft -= (pageHeight - margin * 2);
+
+        while (heightLeft > 0) {
+          position = heightLeft - contentHeight + margin;
+          pdf.addPage();
+          pdf.addImage(imgData, 'JPEG', margin, position, contentWidth, contentHeight);
+          heightLeft -= (pageHeight - margin * 2);
+        }
+      }
 
       const unitCode = String(data.unit_code || 'Unidad').replace(/[^a-zA-Z0-9_-]/g, '_');
       const cleanMonth = String(MONTH_NAMES[periodMonth] || 'Mes').toLowerCase();
       const cleanYear = String(data.period_year || '2026');
       const filename = `Recibo_Apto_${unitCode}_${cleanMonth}_${cleanYear}.pdf`;
 
-      const opt = {
-        margin: [6, 6, 6, 6],
-        filename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' },
-      };
+      // Descarga directa a través de Blob URL
+      const blob = pdf.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      const downloadLink = document.createElement('a');
+      downloadLink.href = blobUrl;
+      downloadLink.download = filename;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
 
-      await html2pdf().set(opt).from(element).save();
+      setTimeout(() => {
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(blobUrl);
+      }, 1000);
     } catch (err) {
-      console.error('Error generando PDF con html2pdf, recurriendo a impresión:', err);
+      console.error('Error generando PDF con jsPDF, recurriendo a impresión del sistema:', err);
       window.print();
     } finally {
       setIsGeneratingPdf(false);
