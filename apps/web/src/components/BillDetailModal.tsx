@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, Printer, QrCode, RefreshCw, AlertTriangle, Building2, Landmark } from 'lucide-react';
+import { X, Printer, RefreshCw, AlertTriangle, Building2, Landmark, Users, Zap, Shield } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { useCondoRecord, formatReserveFundRate, formatCondoLocation } from '../lib/useCondoReserveFundRate';
 
@@ -10,7 +10,6 @@ interface BillDetailModalProps {
   onClose: () => void;
 }
 
-// period_month es 1-based (1 = Enero, 9 = Septiembre)
 const MONTH_NAMES = [
   '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
@@ -19,9 +18,6 @@ const MONTH_NAMES = [
 const ves = (n: number) => `Bs. ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
-  // Hooks antes del return temprano.
-  // Todos los datos se piden scoped al condo_id y al billing_period_id del propio
-  // recibo: nunca se muestran gastos, banco ni datos de otra residencia.
   const condo = useCondoRecord(bill?.condo_id);
   const [billDetail, setBillDetail] = useState<any>(null);
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -60,9 +56,8 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
 
   if (!bill) return null;
 
-  // El detalle del endpoint es la fuente autoritativa; la lista es solo un respaldo.
   const data = billDetail ?? bill;
-  const reserveFundRate = condo ? condo.reserve_fund_rate : null;
+  const reserveFundRate = condo ? condo.reserve_fund_rate : 10;
   const reserveFundRateLabel = formatReserveFundRate(reserveFundRate);
 
   const periodMonth = Number(data.period_month);
@@ -71,74 +66,132 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   const aliquot = Number(data.aliquot_percentage || 0);
   const rate = Number(data.exchange_rate_emission || 0);
 
-  const ordinaryExpenses = expenses.filter(
-    (e) => (e.expense_subtype || 'ORDINARY_RECURRENT') === 'ORDINARY_RECURRENT',
-  );
-  const extraordinaryExpenses = expenses.filter((e) => e.expense_subtype === 'EXTRAORDINARY');
+  // Clasificación de Gastos en 3 Bloques Tradicionales
+  const classifyExpense = (item: any) => {
+    const code = (item.category_code || '').toUpperCase();
+    const sub = (item.expense_subtype || '').toUpperCase();
+    const desc = (item.description || '').toLowerCase();
+    const name = (item.category_name || '').toLowerCase();
+
+    // Bloque I: Trabajador Residencial
+    if (
+      code === 'TR' ||
+      code === 'NOM-CONS' ||
+      desc.includes('trabajador') ||
+      desc.includes('conserj') ||
+      desc.includes('nomina') ||
+      desc.includes('bono') ||
+      desc.includes('ivss') ||
+      desc.includes('faov') ||
+      desc.includes('lph') ||
+      name.includes('conserje') ||
+      name.includes('trabajador')
+    ) {
+      return 1;
+    }
+    // Bloque III: Adicionales, Imprevistos y Cuotas Extras
+    if (
+      code === 'AICE' ||
+      sub === 'EXTRAORDINARY' ||
+      item.expense_type === 'EXTRAORDINARY'
+    ) {
+      return 3;
+    }
+    // Bloque II: Servicios Fijos por defecto
+    return 2;
+  };
+
+  const block1Items = expenses.filter((e) => classifyExpense(e) === 1);
+  const block2Items = expenses.filter((e) => classifyExpense(e) === 2);
+  const block3Items = expenses.filter((e) => classifyExpense(e) === 3);
 
   const sumAmount = (list: any[]) => list.reduce((acc, e) => acc + Number(e.amount_usd || 0), 0);
-  const subtotalOrdinary = sumAmount(ordinaryExpenses);
-  const subtotalExtraordinary = sumAmount(extraordinaryExpenses);
-  const totalRelation = subtotalOrdinary + subtotalExtraordinary;
+  
+  const subtotal1Gasto = sumAmount(block1Items);
+  const subtotal2Gasto = sumAmount(block2Items);
+  const subtotal3Gasto = sumAmount(block3Items);
+  const totalGastosGasto = subtotal1Gasto + subtotal2Gasto + subtotal3Gasto;
 
-  const reserveRatePct = (reserveFundRate ?? 0) / 100;
-  const periodReserveUsd = totalRelation * reserveRatePct;
+  // Cálculo individual de cuotas por ítem
+  const getItemShare = (item: any) => {
+    const matched = billDetail?.items?.find((bi: any) => bi.description === item.description);
+    if (matched && matched.unit_share_usd !== undefined) {
+      return Number(matched.unit_share_usd);
+    }
+    const amount = Number(item.amount_usd || 0);
+    const isGas = (item.category_code || '').toUpperCase() === 'GAS' || (item.description || '').toLowerCase().includes('gas');
+    const unitHasGas = data.has_gas_service ?? true;
+    if (isGas) {
+      // 31 unidades estimado o partes iguales
+      return unitHasGas ? amount / 31 : 0;
+    }
+    return (amount * aliquot) / 100;
+  };
 
-  // Cuotas del apartamento: se prioriza el valor ya calculado y persistido en el recibo.
+  const subtotal1Share = block1Items.reduce((acc, e) => acc + getItemShare(e), 0);
+  const subtotal2Share = block2Items.reduce((acc, e) => acc + getItemShare(e), 0);
+  const subtotal3Share = block3Items.reduce((acc, e) => acc + getItemShare(e), 0);
+
   const pick = (v: any, fallback: number) =>
     v !== undefined && v !== null && v !== '' ? Number(v) : fallback;
-  const aptoOrdinaryUsd = pick(data.ordinary_share_usd, (subtotalOrdinary * aliquot) / 100);
-  const aptoExtraordinaryUsd = pick(data.extraordinary_share_usd, (subtotalExtraordinary * aliquot) / 100);
-  const aptoReserveUsd = pick(data.reserve_fund_usd, periodReserveUsd * (aliquot / 100));
-  const totalAptoUsd = pick(
-    data.total_due_usd,
-    aptoOrdinaryUsd + aptoExtraordinaryUsd + aptoReserveUsd,
+
+  const aptoTotalGastosShare = pick(
+    data.ordinary_share_usd !== undefined && data.extraordinary_share_usd !== undefined
+      ? Number(data.ordinary_share_usd) + Number(data.extraordinary_share_usd)
+      : undefined,
+    subtotal1Share + subtotal2Share + subtotal3Share,
   );
+
+  // Fondo de reserva (20% excluyendo gas)
+  const gasGastoTotal = expenses
+    .filter((e) => (e.category_code || '').toUpperCase() === 'GAS' || (e.description || '').toLowerCase().includes('gas') || e.exclude_from_reserve)
+    .reduce((acc, e) => acc + Number(e.amount_usd || 0), 0);
+
+  const condoReserveBase = totalGastosGasto - gasGastoTotal;
+  const reserveRatePct = (Number(reserveFundRate) || 10) / 100;
+  const condoReserveTotal = condoReserveBase * reserveRatePct;
+
+  const aptoReserveUsd = pick(data.reserve_fund_usd, condoReserveTotal * (aliquot / 100));
+  const totalAptoUsd = pick(data.total_due_usd, aptoTotalGastosShare + aptoReserveUsd);
   const totalAptoVes = totalAptoUsd * rate;
 
   const bank = bankAccounts[0] ?? null;
 
   const ExpenseTable = ({
     rows,
-    amountLabel,
-    rowClass,
-    textClass,
     emptyText,
   }: {
     rows: any[];
-    amountLabel: string;
-    rowClass: string;
-    textClass: string;
     emptyText: string;
   }) => (
-    <table className="w-full text-left">
-      <thead className="text-[10px] uppercase text-slate-400 font-semibold bg-slate-50">
+    <table className="w-full text-left text-xs">
+      <thead className="text-[10px] uppercase text-slate-400 font-semibold bg-slate-50 border-b border-slate-200">
         <tr>
-          <th className="py-2 px-2">Descripción del Gasto</th>
-          <th className="py-2 px-2 text-right">{amountLabel}</th>
-          <th className="py-2 px-2 text-right">Cuota Apto ($)</th>
-          <th className="py-2 px-2 text-right">Cuota Apto (Bs.)</th>
+          <th className="py-2 px-3">Descripción del Gasto</th>
+          <th className="py-2 px-3 text-right">Total Gasto ($)</th>
+          <th className="py-2 px-3 text-right">Cuota Apto ($)</th>
+          <th className="py-2 px-3 text-right">Cuota Apto (Bs.)</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100 text-slate-700">
         {rows.length === 0 ? (
           <tr>
-            <td colSpan={4} className="py-3 px-2 text-slate-400 italic">
+            <td colSpan={4} className="py-3 px-3 text-slate-400 italic">
               {emptyText}
             </td>
           </tr>
         ) : (
           rows.map((item, idx) => {
             const amount = Number(item.amount_usd || 0);
-            const shareUsd = (amount * aliquot) / 100;
+            const shareUsd = getItemShare(item);
             return (
-              <tr key={item.id ?? idx} className={rowClass}>
-                <td className={`py-2 px-2 ${textClass}`}>{item.description || '—'}</td>
-                <td className="py-2 px-2 text-right font-mono">${amount.toFixed(2)}</td>
-                <td className="py-2 px-2 text-right font-bold text-slate-900 font-mono">
+              <tr key={item.id ?? idx} className="hover:bg-slate-50/50 transition">
+                <td className="py-2 px-3 font-medium text-slate-800">{item.description || '—'}</td>
+                <td className="py-2 px-3 text-right font-mono text-slate-600">${amount.toFixed(2)}</td>
+                <td className="py-2 px-3 text-right font-bold text-slate-900 font-mono">
                   ${shareUsd.toFixed(2)}
                 </td>
-                <td className="py-2 px-2 text-right font-mono text-slate-500">{ves(shareUsd * rate)}</td>
+                <td className="py-2 px-3 text-right font-mono text-slate-500">{ves(shareUsd * rate)}</td>
               </tr>
             );
           })
@@ -176,7 +229,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         </div>
 
         {/* Cuerpo del Recibo */}
-        <div className="p-6 space-y-6 text-xs max-h-[80vh] overflow-y-auto">
+        <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto">
           {loadError && (
             <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded-lg">
               {loadError}
@@ -202,126 +255,118 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                 {data.building_name ? ` · ${data.building_name}` : ''}
               </p>
               <p className="font-bold text-emerald-700 font-mono">Alícuota Legal: {aliquot.toFixed(5)}%</p>
-              <p className="text-slate-500">Tasa Oficial BCV: Bs. {rate.toFixed(4)} / USD</p>
+              <p className="text-slate-500 font-mono">Tasa Oficial BCV: Bs. {rate.toFixed(4)} / USD</p>
             </div>
           </div>
 
-          {/* 1. GASTOS ORDINARIOS RECURRENTES */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-              <span className="font-bold text-slate-800 flex items-center gap-1.5 uppercase text-[11px]">
-                <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
-                1. Relación de Gastos Ordinarios Recurrentes (Fijos Mensuales)
+          {/* BLOQUE I: TRABAJADOR RESIDENCIAL */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-slate-100 px-3 py-2 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
+              <span className="flex items-center gap-1.5 uppercase text-[11px]">
+                <Users className="w-4 h-4 text-blue-600" />
+                I. Trabajador Residencial
               </span>
-              <span className="font-bold text-slate-900 font-mono">
-                Subtotal: ${subtotalOrdinary.toFixed(2)} USD
-              </span>
-            </div>
-            <ExpenseTable
-              rows={ordinaryExpenses}
-              amountLabel="Total Gasto"
-              rowClass=""
-              textClass=""
-              emptyText="Sin gastos ordinarios registrados en este período."
-            />
-          </div>
-
-          {/* 2. GASTOS EXTRAORDINARIOS E IMPREVISTOS */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-              <span className="font-bold text-slate-800 flex items-center gap-1.5 uppercase text-[11px]">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                2. Relación de Gastos Extraordinarios (Reparaciones Mayores / Cuotas Extras)
-              </span>
-              <span className="font-bold text-slate-900 font-mono">
-                Subtotal: ${subtotalExtraordinary.toFixed(2)} USD
+              <span className="font-mono text-slate-900">
+                Sub-total I: ${subtotal1Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal1Share.toFixed(2)}
               </span>
             </div>
-            <ExpenseTable
-              rows={extraordinaryExpenses}
-              amountLabel="Total Gasto"
-              rowClass="bg-amber-50/30"
-              textClass="font-medium text-amber-950"
-              emptyText="Sin gastos extraordinarios registrados en este período."
-            />
+            <ExpenseTable rows={block1Items} emptyText="Sin gastos de trabajador residencial en este período." />
           </div>
 
-          {/* 3. FONDO DE RESERVA */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+          {/* BLOQUE II: SERVICIOS FIJOS */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-slate-100 px-3 py-2 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
+              <span className="flex items-center gap-1.5 uppercase text-[11px]">
+                <Zap className="w-4 h-4 text-emerald-600" />
+                II. Servicios Fijos
+              </span>
+              <span className="font-mono text-slate-900">
+                Sub-total II: ${subtotal2Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal2Share.toFixed(2)}
+              </span>
+            </div>
+            <ExpenseTable rows={block2Items} emptyText="Sin servicios fijos registrados en este período." />
+          </div>
+
+          {/* BLOQUE III: ADICIONALES, IMPREVISTOS Y CUOTAS EXTRAS */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-slate-100 px-3 py-2 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
+              <span className="flex items-center gap-1.5 uppercase text-[11px]">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                III. Adicionales, Imprevistos y Cuotas Extras
+              </span>
+              <span className="font-mono text-slate-900">
+                Sub-total III: ${subtotal3Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal3Share.toFixed(2)}
+              </span>
+            </div>
+            <ExpenseTable rows={block3Items} emptyText="Sin gastos adicionales o extraordinarios en este período." />
+          </div>
+
+          {/* BLOQUE DE TOTALES Y LIQUIDACIÓN AL PIE */}
+          <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 shadow-md">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">Total Gastos (I + II + III)</span>
+                <p className="text-sm font-bold font-mono">${totalGastosGasto.toFixed(2)} USD</p>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">Cuota Total Gastos Apto</span>
+                <p className="text-sm font-bold font-mono text-emerald-400">${aptoTotalGastosShare.toFixed(2)} USD</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">
+                  Aporte al Fondo de Reserva ({reserveFundRateLabel}%)
+                </span>
+                <p className="text-xs text-slate-300">
+                  Calculado sobre la base de gastos comunes excluyendo gas (${condoReserveBase.toFixed(2)} del condominio)
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">Cuota Reserva Apto</span>
+                <p className="text-sm font-bold font-mono text-amber-300">${aptoReserveUsd.toFixed(2)} USD</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">TOTAL A PAGAR</p>
+                <p className="text-2xl font-black text-emerald-300 font-mono">${totalAptoUsd.toFixed(2)} USD</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">Equivalencia en Moneda Nacional</p>
+                <p className="text-xl font-black text-white font-mono">{ves(totalAptoVes)}</p>
+                <p className="text-[10px] text-slate-400 font-mono mt-0.5">Tasa BCV oficial: Bs. {rate.toFixed(4)} / USD</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Información Bancaria para Pago */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <span className="font-bold text-slate-900 block">
-                3. Fondo de Reserva ({reserveFundRateLabel}%)
+              <p className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Cuenta Receptora Autorizada</p>
+              {bank ? (
+                <div className="mt-1">
+                  <p className="font-bold text-slate-900">{bank.bank_name} ({bank.bank_code})</p>
+                  <p className="font-mono text-slate-700">{bank.account_number} · {bank.account_type}</p>
+                  <p className="text-slate-500">Titular: {bank.account_holder_name} (RIF: {bank.account_holder_rif})</p>
+                  {bank.supports_pago_movil && (
+                    <p className="text-emerald-700 font-medium mt-0.5">
+                      Pago Móvil: {bank.bank_code} · {bank.pago_movil_phone} · RIF {bank.account_holder_rif}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-amber-600 font-medium mt-0.5">No hay cuentas bancarias configuradas para esta residencia.</p>
+              )}
+            </div>
+            <div className="text-right sm:text-right w-full sm:w-auto">
+              <span className="inline-block px-3 py-1 bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px]">
+                {data.status === 'PAID' ? 'RECIBO PAGADO' : data.status === 'VERIFIED' ? 'VERIFICADO' : 'PENDIENTE DE PAGO'}
               </span>
-              <span className="text-[11px] text-slate-500">
-                Calculado sobre el Total Relación Mes (${totalRelation.toFixed(2)} ×{' '}
-                {reserveFundRateLabel}% = ${periodReserveUsd.toFixed(2)} del período)
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="font-bold text-slate-900 font-mono">${aptoReserveUsd.toFixed(2)} USD</span>
-              <span className="text-[11px] text-slate-500 block font-mono">{ves(aptoReserveUsd * rate)}</span>
             </div>
           </div>
-
-          {/* 4. TOTAL GENERAL LIQUIDADO */}
-          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex items-center justify-between">
-            <div>
-              <p className="text-[11px] text-emerald-800 font-bold uppercase tracking-wider">Total a Pagar del Mes</p>
-              <p className="text-2xl font-black text-emerald-950 font-mono">${totalAptoUsd.toFixed(2)} USD</p>
-              <p className="text-[11px] text-emerald-700">
-                Ordinario: ${aptoOrdinaryUsd.toFixed(2)} + Extraordinario: ${aptoExtraordinaryUsd.toFixed(2)} +
-                Reserva: ${aptoReserveUsd.toFixed(2)}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-[11px] text-emerald-700 font-medium">Equivalente en Moneda Nacional:</p>
-              <p className="text-xl font-bold text-emerald-900 font-mono">{ves(totalAptoVes)}</p>
-              <p className="text-[10px] text-slate-500 font-mono">Tasa BCV: {rate.toFixed(4)} Bs/USD</p>
-            </div>
-          </div>
-
-          {/* Datos bancarios de ESTA residencia */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-            {bank ? (
-              <div className="space-y-1">
-                <p className="font-bold text-slate-900">Datos para Pago Móvil / Transferencia:</p>
-                <p className="text-slate-600">
-                  Banco: <strong>{bank.bank_name} ({bank.bank_code})</strong> · Cuenta:{' '}
-                  <strong className="font-mono">{bank.account_number}</strong>
-                </p>
-                <p className="text-slate-600">
-                  Titular: <strong>{bank.account_holder_name || condo?.name || '—'}</strong> · RIF:{' '}
-                  <strong>{bank.account_holder_rif || condo?.rif || '—'}</strong>
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <p className="font-bold text-slate-900 flex items-center gap-1.5">
-                  <Landmark className="w-3.5 h-3.5 text-slate-400" />
-                  Datos de pago no registrados
-                </p>
-                <p className="text-slate-500">
-                  Esta residencia aún no tiene una cuenta bancaria asociada para recibir los pagos.
-                </p>
-              </div>
-            )}
-            <div className="flex flex-col items-center">
-              <div className="w-12 h-12 bg-white border border-slate-300 rounded-lg flex items-center justify-center text-slate-800">
-                <QrCode className="w-8 h-8 text-emerald-600" />
-              </div>
-              <span className="text-[10px] text-slate-500 mt-1 font-mono">QR Pago Móvil</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold transition"
-          >
-            Cerrar Recibo
-          </button>
         </div>
       </div>
     </div>
