@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, Printer, RefreshCw, AlertTriangle, Users, Zap, Flame, Ban } from 'lucide-react';
+import { X, Printer, Download, RefreshCw, AlertTriangle, Users, Zap, Flame, Ban, Edit3, Check } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { useCondoRecord, formatReserveFundRate, formatCondoLocation } from '../lib/useCondoReserveFundRate';
 
@@ -34,6 +34,10 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   const [billDetail, setBillDetail] = useState<any>(null);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [bcvRateData, setBcvRateData] = useState<{ rate: number; date: string } | null>(null);
+  const [overrideRate, setOverrideRate] = useState<string>('');
+  const [isEditingRate, setIsEditingRate] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [loadError, setLoadError] = useState('');
 
   const billId = bill?.id ?? null;
@@ -46,15 +50,19 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
 
     (async () => {
       try {
-        const [detail, exp, banks] = await Promise.all([
+        const [detail, exp, banks, bcv] = await Promise.all([
           fetchWithAuth(`/billing/bills/${billId}`),
           fetchWithAuth(`/billing/condos/${condoId}/expenses?periodId=${periodId}`),
           fetchWithAuth(`/condos/${condoId}/bank-accounts`),
+          fetchWithAuth('/bcv/current').catch(() => null),
         ]);
         if (cancelled) return;
         setBillDetail(detail?.bill ?? null);
         setExpenses(Array.isArray(exp) ? exp : []);
         setBankAccounts(Array.isArray(banks) ? banks : []);
+        if (bcv?.rate && Number(bcv.rate) > 0) {
+          setBcvRateData({ rate: Number(bcv.rate), date: bcv.rate_date });
+        }
         setLoadError('');
       } catch (err: any) {
         if (!cancelled) setLoadError(err?.message || 'No se pudieron cargar los datos del recibo');
@@ -76,12 +84,22 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   const periodLabel = `${MONTH_NAMES[periodMonth] || ''} ${data.period_year ?? ''}`.trim();
 
   const aliquot = Number(data.aliquot_percentage || 0);
-  const rate = Number(data.exchange_rate_emission || 0);
+
+  // Manejo de la Tasa BCV Actualizada y Fecha Valor
+  const emissionRate = Number(data.exchange_rate_emission || 0);
+  const currentLiveRate = bcvRateData?.rate ?? 0;
+  // Prioridad: 1. Sobreescritura manual, 2. Tasa oficial BCV vigente en vivo (ej. 872.3927), 3. Tasa de emisión del recibo (ej. 36.8500)
+  const defaultRate = currentLiveRate > 0 ? currentLiveRate : (emissionRate > 0 ? emissionRate : 872.3927);
+  const rate = overrideRate !== '' && !isNaN(Number(overrideRate)) && Number(overrideRate) > 0
+    ? Number(overrideRate)
+    : defaultRate;
 
   // Fechas formateadas en español limpio DD/MM/AAAA
   const rawIssueDate = data.issue_date || data.created_at || null;
   const issueDateFmt = formatDateEs(rawIssueDate);
-  const rateDateFmt = formatDateEs(data.issue_date || data.created_at || data.due_date);
+  const rateDateFmt = bcvRateData?.date
+    ? formatDateEs(bcvRateData.date)
+    : formatDateEs(data.issue_date || data.created_at || data.due_date);
 
   // 1. Estatus del Gas robusto (revisando en billDetail, data y bill)
   const hasGas = Boolean(
@@ -184,6 +202,37 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     window.print();
   };
 
+  const handleDownloadPdf = async () => {
+    try {
+      setIsGeneratingPdf(true);
+      const element = document.getElementById('printable-bill-receipt');
+      if (!element) return;
+
+      const html2pdfModule = await import('html2pdf.js');
+      const html2pdf = (html2pdfModule as any).default || html2pdfModule;
+
+      const unitCode = String(data.unit_code || 'Unidad').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const cleanMonth = String(MONTH_NAMES[periodMonth] || 'Mes').toLowerCase();
+      const cleanYear = String(data.period_year || '2026');
+      const filename = `Recibo_Apto_${unitCode}_${cleanMonth}_${cleanYear}.pdf`;
+
+      const opt = {
+        margin: [6, 6, 6, 6],
+        filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' },
+      };
+
+      await html2pdf().set(opt).from(element).save();
+    } catch (err) {
+      console.error('Error generando PDF con html2pdf, recurriendo a impresión:', err);
+      window.print();
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   const ExpenseTable = ({
     rows,
     emptyText,
@@ -239,7 +288,10 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto print:block">
-      <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6 print:shadow-none print:border-none print:m-0 print:max-w-none print:w-full print:rounded-none">
+      <div
+        id="printable-bill-receipt"
+        className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6 print:shadow-none print:border-none print:m-0 print:max-w-none print:w-full print:rounded-none"
+      >
         {/* Cabecera del Aviso */}
         <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between print:bg-slate-900 print:text-white print:px-6 print:py-4">
           <div>
@@ -253,7 +305,16 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
               N° {data.bill_number} · Emisión: {issueDateFmt}
             </p>
           </div>
-          <div className="flex items-center space-x-2 print:hidden">
+          <div className="flex items-center space-x-2 print:hidden" data-html2canvas-ignore="true">
+            <button
+              onClick={handleDownloadPdf}
+              disabled={isGeneratingPdf}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-medium text-xs shadow-sm transition disabled:opacity-50"
+              title="Descargar archivo PDF"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isGeneratingPdf ? 'Generando...' : 'Descargar PDF'}</span>
+            </button>
             <button
               onClick={handlePrint}
               className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition"
@@ -274,7 +335,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         {/* Cuerpo del Recibo */}
         <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-6 print:space-y-4">
           {loadError && (
-            <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded-lg print:hidden">
+            <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded-lg print:hidden" data-html2canvas-ignore="true">
               {loadError}
             </div>
           )}
@@ -303,9 +364,61 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                   Servicio de Gas: {hasGas ? 'ACTIVO / INCLUIDO' : 'NO APLICA / EXCLUIDO'}
                 </span>
               </div>
-              <p className="text-slate-500 font-mono mt-1">
-                Tasa Oficial BCV: Bs. {rate.toFixed(4)} / USD <span className="text-[10px] text-slate-400">(Fecha: {rateDateFmt})</span>
-              </p>
+
+              {/* Tasa Oficial BCV con selector/ajuste administrativo */}
+              <div className="mt-1 flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-slate-600 font-mono">
+                    Tasa Oficial BCV:{' '}
+                    <span className="font-bold text-slate-900">Bs. {rate.toFixed(4)} / USD</span>{' '}
+                    <span className="text-[10px] text-slate-400">({rateDateFmt})</span>
+                  </p>
+                  <button
+                    onClick={() => setIsEditingRate(!isEditingRate)}
+                    className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold underline print:hidden flex items-center gap-0.5"
+                    data-html2canvas-ignore="true"
+                    title="Ajustar o sobreescribir tasa de cambio"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    <span>{isEditingRate ? 'Cerrar' : 'Ajustar'}</span>
+                  </button>
+                </div>
+
+                {isEditingRate && (
+                  <div
+                    className="p-2 bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-2 text-xs print:hidden shadow-sm mt-1"
+                    data-html2canvas-ignore="true"
+                  >
+                    <span className="text-slate-600 font-medium text-[11px]">Tasa Bs.:</span>
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={overrideRate !== '' ? overrideRate : rate.toFixed(4)}
+                      onChange={(e) => setOverrideRate(e.target.value)}
+                      className="w-24 px-2 py-0.5 border border-slate-300 rounded font-mono text-right text-xs"
+                      placeholder="872.39"
+                    />
+                    {currentLiveRate > 0 && (
+                      <button
+                        onClick={() => setOverrideRate(String(currentLiveRate))}
+                        className="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded text-[10px] font-semibold"
+                        title="Usar tasa oficial del BCV en vivo"
+                      >
+                        Oficial ({currentLiveRate.toFixed(2)})
+                      </button>
+                    )}
+                    {emissionRate > 0 && emissionRate !== currentLiveRate && (
+                      <button
+                        onClick={() => setOverrideRate(String(emissionRate))}
+                        className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-semibold"
+                        title="Usar tasa registrada al emitir el recibo"
+                      >
+                        Cierre ({emissionRate.toFixed(2)})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

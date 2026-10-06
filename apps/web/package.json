@@ -11,6 +11,7 @@
   "dependencies": {
     "@tucondominio360/shared": "*",
     "clsx": "^2.1.1",
+    "html2pdf.js": "^0.14.0",
     "lucide-react": "^0.453.0",
     "next": "^14.2.20",
     "react": "^18.3.1",
