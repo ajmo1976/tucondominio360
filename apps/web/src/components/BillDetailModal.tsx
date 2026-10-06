@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { X, Printer, Download, RefreshCw, AlertTriangle, Users, Zap, Flame, Ban, Edit3, Check } from 'lucide-react';
+import { X, Printer, Download, AlertTriangle, Users, Zap, Flame, Ban, Edit3 } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { useCondoRecord, formatReserveFundRate, formatCondoLocation } from '../lib/useCondoReserveFundRate';
 
@@ -85,23 +85,22 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
 
   const aliquot = Number(data.aliquot_percentage || 0);
 
-  // Manejo de la Tasa BCV Actualizada y Fecha Valor
+  // Manejo de la Tasa BCV Oficial y Fecha Valor
   const emissionRate = Number(data.exchange_rate_emission || 0);
   const currentLiveRate = bcvRateData?.rate ?? 0;
-  // Prioridad: 1. Sobreescritura manual, 2. Tasa oficial BCV vigente en vivo (ej. 872.3927), 3. Tasa de emisión del recibo (ej. 36.8500)
   const defaultRate = currentLiveRate > 0 ? currentLiveRate : (emissionRate > 0 ? emissionRate : 872.3927);
   const rate = overrideRate !== '' && !isNaN(Number(overrideRate)) && Number(overrideRate) > 0
     ? Number(overrideRate)
     : defaultRate;
 
-  // Fechas formateadas en español limpio DD/MM/AAAA
+  // Fechas formateadas en español DD/MM/AAAA
   const rawIssueDate = data.issue_date || data.created_at || null;
   const issueDateFmt = formatDateEs(rawIssueDate);
   const rateDateFmt = bcvRateData?.date
     ? formatDateEs(bcvRateData.date)
     : formatDateEs(data.issue_date || data.created_at || data.due_date);
 
-  // 1. Estatus del Gas robusto (revisando en billDetail, data y bill)
+  // Estatus del Gas robusto
   const hasGas = Boolean(
     billDetail?.has_gas_service === true ||
     data?.has_gas_service === true ||
@@ -155,7 +154,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   const getItemShare = (item: any) => {
     const isGas = (item.category_code || '').toUpperCase() === 'GAS' || (item.description || '').toLowerCase().includes('gas');
     if (isGas && !hasGas) {
-      return 0; // Si la unidad no tiene gas, la cuota es $0.00
+      return 0;
     }
 
     const matched = billDetail?.items?.find((bi: any) => bi.description === item.description);
@@ -202,6 +201,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     window.print();
   };
 
+  // Descarga Ejecutiva de PDF en 1 sola página perfecta
   const handleDownloadPdf = async () => {
     try {
       setIsGeneratingPdf(true);
@@ -211,7 +211,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         return;
       }
 
-      // Expandir contenedor scrollable para que capture la totalidad del recibo
+      // 1. Expandir temporalmente el scroll para capturar el contenido íntegro sin cortes
       const scrollableDiv = element.querySelector('.overflow-y-auto') as HTMLElement | null;
       const prevMaxHeight = scrollableDiv?.style.maxHeight || '';
       const prevOverflow = scrollableDiv?.style.overflow || '';
@@ -224,14 +224,14 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
       const html2canvas = (html2canvasModule as any).default || html2canvasModule;
 
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 2.5, // Ultra alta nitidez
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
         ignoreElements: (el: Element) => el.getAttribute('data-html2canvas-ignore') === 'true',
       });
 
-      // Restaurar estilos del contenedor
+      // Restaurar estilos en pantalla
       if (scrollableDiv) {
         scrollableDiv.style.maxHeight = prevMaxHeight;
         scrollableDiv.style.overflow = prevOverflow;
@@ -247,27 +247,42 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
       const pageWidth = 215.9; // Carta ancho (mm)
       const pageHeight = 279.4; // Carta alto (mm)
       const margin = 8;
-      const contentWidth = pageWidth - margin * 2;
-      const contentHeight = (canvas.height * contentWidth) / canvas.width;
+      const availableWidth = pageWidth - margin * 2;
+      const availableHeight = pageHeight - margin * 2;
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      const rawHeightMm = (canvas.height * availableWidth) / canvas.width;
 
-      if (contentHeight <= pageHeight - margin * 2) {
-        // Cabe perfectamente en una sola página
-        pdf.addImage(imgData, 'JPEG', margin, margin, contentWidth, contentHeight);
+      // Escalado inteligente de Emil Kowalski: Si el contenido cabe en 1 página (incluso con leve tolerancia),
+      // se ajusta para que el recibo sea un documento ejecutivo de EXACTAMENTE UNA PÁGINA.
+      let renderWidth = availableWidth;
+      let renderHeight = rawHeightMm;
+      let posX = margin;
+      let posY = margin;
+
+      if (rawHeightMm > availableHeight && rawHeightMm <= availableHeight * 1.35) {
+        const scale = availableHeight / rawHeightMm;
+        renderWidth = availableWidth * scale;
+        renderHeight = availableHeight;
+        posX = margin + (availableWidth - renderWidth) / 2;
+      }
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+
+      if (renderHeight <= availableHeight) {
+        pdf.addImage(imgData, 'JPEG', posX, posY, renderWidth, renderHeight);
       } else {
-        // Soporte multipágina si el contenido es largo
-        let heightLeft = contentHeight;
+        // En caso de listas extremadamente largas (más de 20 gastos), se pagina limpiamente
+        let heightLeft = renderHeight;
         let position = margin;
 
-        pdf.addImage(imgData, 'JPEG', margin, position, contentWidth, contentHeight);
-        heightLeft -= (pageHeight - margin * 2);
+        pdf.addImage(imgData, 'JPEG', margin, position, renderWidth, renderHeight);
+        heightLeft -= availableHeight;
 
         while (heightLeft > 0) {
-          position = heightLeft - contentHeight + margin;
+          position = heightLeft - renderHeight + margin;
           pdf.addPage();
-          pdf.addImage(imgData, 'JPEG', margin, position, contentWidth, contentHeight);
-          heightLeft -= (pageHeight - margin * 2);
+          pdf.addImage(imgData, 'JPEG', margin, position, renderWidth, renderHeight);
+          heightLeft -= availableHeight;
         }
       }
 
@@ -276,7 +291,6 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
       const cleanYear = String(data.period_year || '2026');
       const filename = `Recibo_Apto_${unitCode}_${cleanMonth}_${cleanYear}.pdf`;
 
-      // Descarga directa a través de Blob URL
       const blob = pdf.output('blob');
       const blobUrl = URL.createObjectURL(blob);
       const downloadLink = document.createElement('a');
@@ -290,7 +304,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         URL.revokeObjectURL(blobUrl);
       }, 1000);
     } catch (err) {
-      console.error('Error generando PDF con jsPDF, recurriendo a impresión del sistema:', err);
+      console.error('Error generando PDF:', err);
       window.print();
     } finally {
       setIsGeneratingPdf(false);
@@ -304,19 +318,19 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
     rows: any[];
     emptyText: string;
   }) => (
-    <table className="w-full text-left text-xs">
-      <thead className="text-[10px] uppercase text-slate-400 font-semibold bg-slate-50 border-b border-slate-200">
+    <table className="w-full text-left text-[11px] table-fixed">
+      <thead className="text-[9.5px] uppercase text-slate-500 font-semibold bg-slate-50/90 border-b border-slate-200">
         <tr>
-          <th className="py-2 px-3">Descripción del Gasto</th>
-          <th className="py-2 px-3 text-right">Total Gasto ($)</th>
-          <th className="py-2 px-3 text-right">Cuota Apto ($)</th>
-          <th className="py-2 px-3 text-right">Cuota Apto (Bs.)</th>
+          <th className="py-1.5 px-3 text-left w-[46%] whitespace-nowrap">Descripción del Gasto</th>
+          <th className="py-1.5 px-2 text-right w-[18%] whitespace-nowrap">Total Gasto ($)</th>
+          <th className="py-1.5 px-2 text-right w-[18%] whitespace-nowrap">Cuota Apto ($)</th>
+          <th className="py-1.5 px-2 text-right w-[18%] whitespace-nowrap">Cuota Apto (Bs.)</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100 text-slate-700">
         {rows.length === 0 ? (
           <tr>
-            <td colSpan={4} className="py-3 px-3 text-slate-400 italic">
+            <td colSpan={4} className="py-2.5 px-3 text-slate-400 italic text-center">
               {emptyText}
             </td>
           </tr>
@@ -326,20 +340,22 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
             const isGas = (item.category_code || '').toUpperCase() === 'GAS' || (item.description || '').toLowerCase().includes('gas');
             const shareUsd = getItemShare(item);
             return (
-              <tr key={item.id ?? idx} className="hover:bg-slate-50/50 transition">
-                <td className="py-2 px-3 font-medium text-slate-800">
+              <tr key={item.id ?? idx} className="hover:bg-slate-50/40 transition">
+                <td className="py-1 px-3 font-medium text-slate-800 truncate">
                   {item.description || '—'}
                   {isGas && !hasGas && (
-                    <span className="ml-2 px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-semibold">
+                    <span className="ml-1.5 px-1 py-0.2 bg-slate-100 text-slate-500 rounded text-[8.5px] font-semibold">
                       Exento / No aplica
                     </span>
                   )}
                 </td>
-                <td className="py-2 px-3 text-right font-mono text-slate-600">${amount.toFixed(2)}</td>
-                <td className="py-2 px-3 text-right font-bold text-slate-900 font-mono">
+                <td className="py-1 px-2 text-right font-mono tabular-nums text-slate-600">
+                  ${amount.toFixed(2)}
+                </td>
+                <td className="py-1 px-2 text-right font-mono tabular-nums font-bold text-slate-900">
                   {isGas && !hasGas ? '$0.00' : `$${shareUsd.toFixed(2)}`}
                 </td>
-                <td className="py-2 px-3 text-right font-mono text-slate-500">
+                <td className="py-1 px-2 text-right font-mono tabular-nums text-slate-600">
                   {isGas && !hasGas ? 'Bs. 0,00' : ves(shareUsd * rate)}
                 </td>
               </tr>
@@ -351,21 +367,23 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto print:block">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto print:p-0 print:bg-white print:static print:inset-auto print:block">
       <div
         id="printable-bill-receipt"
-        className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-6 print:shadow-none print:border-none print:m-0 print:max-w-none print:w-full print:rounded-none"
+        className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-4 print:shadow-none print:border-none print:m-0 print:max-w-none print:w-full print:rounded-none"
       >
         {/* Cabecera del Aviso */}
-        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between print:bg-slate-900 print:text-white print:px-6 print:py-4">
+        <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between print:bg-slate-900 print:text-white print:px-5 print:py-3.5">
           <div>
-            <h3 className="font-bold text-base tracking-tight flex items-center gap-2">
-              <span>AVISO DE COBRO · {periodLabel.toUpperCase()}</span>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${hasGas ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-sm tracking-tight">
+                AVISO DE COBRO · {periodLabel.toUpperCase()}
+              </h3>
+              <span className={`px-2 py-0.5 rounded text-[9.5px] font-bold ${hasGas ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'}`}>
                 {hasGas ? 'CON GAS' : 'SIN GAS'}
               </span>
-            </h3>
-            <p className="text-xs text-slate-400">
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
               N° {data.bill_number} · Emisión: {issueDateFmt}
             </p>
           </div>
@@ -373,22 +391,22 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
             <button
               onClick={handleDownloadPdf}
               disabled={isGeneratingPdf}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-medium text-xs shadow-sm transition disabled:opacity-50"
-              title="Descargar archivo PDF"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 rounded-lg text-white font-medium text-xs shadow-sm transition disabled:opacity-50"
+              title="Descargar archivo PDF de 1 página"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isGeneratingPdf ? 'Generando...' : 'Descargar PDF'}</span>
             </button>
             <button
               onClick={handlePrint}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition"
+              className="p-1.5 hover:bg-slate-800 active:scale-95 rounded-lg text-slate-300 hover:text-white transition"
               title="Imprimir Recibo"
             >
               <Printer className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-white transition"
+              className="p-1.5 hover:bg-slate-800 active:scale-95 rounded-lg text-slate-300 hover:text-white transition"
               title="Cerrar Recibo"
             >
               <X className="w-5 h-5" />
@@ -396,8 +414,8 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
         </div>
 
-        {/* Cuerpo del Recibo */}
-        <div className="p-6 space-y-5 text-xs max-h-[80vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-6 print:space-y-4">
+        {/* Cuerpo del Recibo con densidad ejecutiva */}
+        <div className="p-4 sm:p-5 space-y-3.5 text-xs max-h-[82vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-4 print:space-y-3">
           {loadError && (
             <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded-lg print:hidden" data-html2canvas-ignore="true">
               {loadError}
@@ -405,67 +423,69 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           )}
 
           {/* Identificación Condominio e Inmueble */}
-          <div className="grid grid-cols-2 gap-4 pb-4 border-b border-slate-200">
+          <div className="grid grid-cols-2 gap-3 pb-3 border-b border-slate-200">
             <div>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+              <p className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
                 Condominio Administrado
               </p>
-              <p className="font-bold text-slate-900 text-sm">{condo?.name || '—'}</p>
-              <p className="text-slate-600 font-mono">RIF: {condo?.rif || '—'}</p>
-              <p className="text-slate-500">{formatCondoLocation(condo) || '—'}</p>
+              <p className="font-bold text-slate-900 text-[13px] leading-snug">{condo?.name || '—'}</p>
+              <p className="text-slate-600 font-mono text-[10.5px]">RIF: {condo?.rif || '—'}</p>
+              <p className="text-slate-500 text-[10.5px] leading-tight">{formatCondoLocation(condo) || '—'}</p>
             </div>
             <div className="text-right">
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+              <p className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
                 Unidad Inmobiliaria
               </p>
-              <p className="font-bold text-slate-900 text-sm flex items-center justify-end gap-1.5">
-                <span>{data.unit_code}{data.building_name ? ` · ${data.building_name}` : ''}</span>
+              <p className="font-bold text-slate-900 text-[13px] leading-snug">
+                {data.unit_code}{data.building_name ? ` · ${data.building_name}` : ''}
               </p>
-              <p className="font-bold text-emerald-700 font-mono">Alícuota Legal: {aliquot.toFixed(5)}%</p>
-              <div className="mt-1 flex items-center justify-end gap-1.5">
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${hasGas ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
-                  {hasGas ? <Flame className="w-3 h-3 text-emerald-600" /> : <Ban className="w-3 h-3 text-slate-400" />}
+              <p className="font-bold text-emerald-700 font-mono text-[11px]">
+                Alícuota Legal: {aliquot.toFixed(5)}%
+              </p>
+              <div className="mt-0.5 flex items-center justify-end gap-1">
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9.5px] font-semibold ${hasGas ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}>
+                  {hasGas ? <Flame className="w-2.5 h-2.5 text-emerald-600" /> : <Ban className="w-2.5 h-2.5 text-slate-400" />}
                   Servicio de Gas: {hasGas ? 'ACTIVO / INCLUIDO' : 'NO APLICA / EXCLUIDO'}
                 </span>
               </div>
 
-              {/* Tasa Oficial BCV con selector/ajuste administrativo */}
-              <div className="mt-1 flex flex-col items-end gap-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="text-slate-600 font-mono">
+              {/* Tasa Oficial BCV */}
+              <div className="mt-0.5 flex flex-col items-end">
+                <div className="flex items-center gap-1">
+                  <p className="text-slate-600 font-mono text-[10.5px]">
                     Tasa Oficial BCV:{' '}
                     <span className="font-bold text-slate-900">Bs. {rate.toFixed(4)} / USD</span>{' '}
-                    <span className="text-[10px] text-slate-400">({rateDateFmt})</span>
+                    <span className="text-[9.5px] text-slate-400">({rateDateFmt})</span>
                   </p>
                   <button
                     onClick={() => setIsEditingRate(!isEditingRate)}
-                    className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold underline print:hidden flex items-center gap-0.5"
+                    className="text-[9.5px] text-blue-600 hover:text-blue-800 font-semibold underline print:hidden flex items-center gap-0.5 ml-1"
                     data-html2canvas-ignore="true"
                     title="Ajustar o sobreescribir tasa de cambio"
                   >
-                    <Edit3 className="w-3 h-3" />
+                    <Edit3 className="w-2.5 h-2.5" />
                     <span>{isEditingRate ? 'Cerrar' : 'Ajustar'}</span>
                   </button>
                 </div>
 
                 {isEditingRate && (
                   <div
-                    className="p-2 bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-2 text-xs print:hidden shadow-sm mt-1"
+                    className="p-1.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-1.5 text-[11px] print:hidden shadow-sm mt-1"
                     data-html2canvas-ignore="true"
                   >
-                    <span className="text-slate-600 font-medium text-[11px]">Tasa Bs.:</span>
+                    <span className="text-slate-600 font-medium text-[10px]">Tasa Bs.:</span>
                     <input
                       type="number"
                       step="0.0001"
                       value={overrideRate !== '' ? overrideRate : rate.toFixed(4)}
                       onChange={(e) => setOverrideRate(e.target.value)}
-                      className="w-24 px-2 py-0.5 border border-slate-300 rounded font-mono text-right text-xs"
+                      className="w-20 px-1.5 py-0.5 border border-slate-300 rounded font-mono text-right text-[11px]"
                       placeholder="872.39"
                     />
                     {currentLiveRate > 0 && (
                       <button
                         onClick={() => setOverrideRate(String(currentLiveRate))}
-                        className="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded text-[10px] font-semibold"
+                        className="px-1.5 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded text-[9.5px] font-semibold"
                         title="Usar tasa oficial del BCV en vivo"
                       >
                         Oficial ({currentLiveRate.toFixed(2)})
@@ -474,7 +494,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
                     {emissionRate > 0 && emissionRate !== currentLiveRate && (
                       <button
                         onClick={() => setOverrideRate(String(emissionRate))}
-                        className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-semibold"
+                        className="px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[9.5px] font-semibold"
                         title="Usar tasa registrada al emitir el recibo"
                       >
                         Cierre ({emissionRate.toFixed(2)})
@@ -487,13 +507,13 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE I: TRABAJADOR RESIDENCIAL */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="bg-slate-100 px-3 py-2 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
-              <span className="flex items-center gap-1.5 uppercase text-[11px]">
-                <Users className="w-4 h-4 text-blue-600" />
+          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs">
+            <div className="bg-slate-100/90 px-3 py-1 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
+              <span className="flex items-center gap-1.5 uppercase text-[10px]">
+                <Users className="w-3.5 h-3.5 text-blue-600" />
                 I. Trabajador Residencial
               </span>
-              <span className="font-mono text-slate-900">
+              <span className="font-mono text-slate-900 text-[10.5px]">
                 Sub-total I: ${subtotal1Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal1Share.toFixed(2)}
               </span>
             </div>
@@ -501,13 +521,13 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE II: SERVICIOS FIJOS */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="bg-slate-100 px-3 py-2 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
-              <span className="flex items-center gap-1.5 uppercase text-[11px]">
-                <Zap className="w-4 h-4 text-emerald-600" />
+          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs">
+            <div className="bg-slate-100/90 px-3 py-1 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
+              <span className="flex items-center gap-1.5 uppercase text-[10px]">
+                <Zap className="w-3.5 h-3.5 text-emerald-600" />
                 II. Servicios Fijos
               </span>
-              <span className="font-mono text-slate-900">
+              <span className="font-mono text-slate-900 text-[10.5px]">
                 Sub-total II: ${subtotal2Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal2Share.toFixed(2)}
               </span>
             </div>
@@ -515,56 +535,56 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE III: ADICIONALES, IMPREVISTOS Y CUOTAS EXTRAS */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            <div className="bg-slate-100 px-3 py-2 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
-              <span className="flex items-center gap-1.5 uppercase text-[11px]">
-                <AlertTriangle className="w-4 h-4 text-amber-600" />
+          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs">
+            <div className="bg-slate-100/90 px-3 py-1 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
+              <span className="flex items-center gap-1.5 uppercase text-[10px]">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                 III. Adicionales, Imprevistos y Cuotas Extras
               </span>
-              <span className="font-mono text-slate-900">
+              <span className="font-mono text-slate-900 text-[10.5px]">
                 Sub-total III: ${subtotal3Gasto.toFixed(2)} USD | Cuota Apto: ${subtotal3Share.toFixed(2)}
               </span>
             </div>
             <ExpenseTable rows={block3Items} emptyText="Sin gastos adicionales o extraordinarios en este período." />
           </div>
 
-          {/* BLOQUE DE TOTALES Y LIQUIDACIÓN AL PIE */}
-          <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-4 shadow-md print:bg-slate-900 print:text-white print:rounded-xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          {/* BLOQUE DE TOTALES Y LIQUIDACIÓN AL PIE (Compacto y Elegante) */}
+          <div className="bg-slate-900 text-white rounded-xl p-3.5 space-y-2 shadow-sm print:bg-slate-900 print:text-white print:rounded-lg">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <div>
-                <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">Total Gastos (I + II + III)</span>
-                <p className="text-sm font-bold font-mono">${totalGastosGasto.toFixed(2)} USD</p>
+                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Total Gastos (I + II + III)</span>
+                <p className="text-xs font-bold font-mono">${totalGastosGasto.toFixed(2)} USD</p>
               </div>
               <div className="text-right">
-                <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">Cuota Total Gastos Apto</span>
-                <p className="text-sm font-bold font-mono text-emerald-400">${aptoTotalGastosShare.toFixed(2)} USD</p>
+                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Cuota Total Gastos Apto</span>
+                <p className="text-xs font-bold font-mono text-emerald-400">${aptoTotalGastosShare.toFixed(2)} USD</p>
               </div>
             </div>
 
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <div>
-                <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">
+                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">
                   Aporte al Fondo de Reserva ({reserveFundRateLabel}%)
                 </span>
-                <p className="text-xs text-slate-300">
-                  Calculado sobre la base de gastos comunes excluyendo gas (${condoReserveBase.toFixed(2)} del condominio)
+                <p className="text-[10px] text-slate-300">
+                  Base común sin gas: ${condoReserveBase.toFixed(2)} del condominio
                 </p>
               </div>
               <div className="text-right">
-                <span className="text-slate-400 uppercase text-[10px] font-bold tracking-wider">Cuota Reserva Apto</span>
-                <p className="text-sm font-bold font-mono text-amber-300">${aptoReserveUsd.toFixed(2)} USD</p>
+                <span className="text-slate-400 uppercase text-[9px] font-bold tracking-wider">Cuota Reserva Apto</span>
+                <p className="text-xs font-bold font-mono text-amber-300">${aptoReserveUsd.toFixed(2)} USD</p>
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center justify-between pt-0.5">
               <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">TOTAL A PAGAR</p>
-                <p className="text-2xl font-black text-emerald-300 font-mono">${totalAptoUsd.toFixed(2)} USD</p>
+                <p className="text-[9.5px] text-slate-400 uppercase tracking-wider font-bold">TOTAL A PAGAR</p>
+                <p className="text-lg font-black text-emerald-300 font-mono leading-tight">${totalAptoUsd.toFixed(2)} USD</p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-slate-400 uppercase tracking-wider font-bold">Equivalencia en Moneda Nacional</p>
-                <p className="text-xl font-black text-white font-mono">{ves(totalAptoVes)}</p>
-                <p className="text-[10px] text-slate-300 font-mono mt-0.5">
+                <p className="text-[9.5px] text-slate-400 uppercase tracking-wider font-bold">Equivalencia Moneda Nacional</p>
+                <p className="text-base font-black text-white font-mono leading-tight">{ves(totalAptoVes)}</p>
+                <p className="text-[9px] text-slate-400 font-mono mt-0.5">
                   Tasa Oficial BCV ({rateDateFmt}): Bs. {rate.toFixed(4)} / USD
                 </p>
               </div>
@@ -572,26 +592,29 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* Información Bancaria para Pago */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-row items-center justify-between gap-3 text-[10.5px]">
             <div>
-              <p className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Cuenta Receptora Autorizada</p>
+              <p className="text-[9px] font-bold uppercase text-slate-500 tracking-wider">Cuenta Receptora Autorizada</p>
               {bank ? (
-                <div className="mt-1">
-                  <p className="font-bold text-slate-900">{bank.bank_name} ({bank.bank_code})</p>
-                  <p className="font-mono text-slate-700">{bank.account_number} · {bank.account_type}</p>
-                  <p className="text-slate-500">Titular: {bank.account_holder_name} (RIF: {bank.account_holder_rif})</p>
-                  {bank.supports_pago_movil && (
-                    <p className="text-emerald-700 font-medium mt-0.5">
-                      Pago Móvil: {bank.bank_code} · {bank.pago_movil_phone} · RIF {bank.account_holder_rif}
-                    </p>
-                  )}
+                <div className="mt-0.5 space-y-0.5">
+                  <p className="font-bold text-slate-900 leading-none">
+                    {bank.bank_name} ({bank.bank_code}) · <span className="font-mono text-slate-700">{bank.account_number}</span> ({bank.account_type})
+                  </p>
+                  <p className="text-slate-600 text-[10px] leading-tight">
+                    Titular: {bank.account_holder_name} (RIF: {bank.account_holder_rif})
+                    {bank.supports_pago_movil && (
+                      <span className="text-emerald-700 font-medium ml-2">
+                        · Pago Móvil: {bank.bank_code} · {bank.pago_movil_phone} · RIF {bank.account_holder_rif}
+                      </span>
+                    )}
+                  </p>
                 </div>
               ) : (
-                <p className="text-amber-600 font-medium mt-0.5">No hay cuentas bancarias configuradas para esta residencia.</p>
+                <p className="text-amber-600 font-medium text-[10.5px]">No hay cuentas bancarias configuradas para esta residencia.</p>
               )}
             </div>
-            <div className="text-right sm:text-right w-full sm:w-auto">
-              <span className="inline-block px-3 py-1 bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px]">
+            <div className="shrink-0 text-right">
+              <span className="inline-block px-2.5 py-0.5 bg-slate-200 text-slate-700 rounded-md font-bold text-[10px]">
                 {data.status === 'PAID' ? 'RECIBO PAGADO' : data.status === 'VERIFIED' ? 'VERIFICADO' : 'PENDIENTE DE PAGO'}
               </span>
             </div>
