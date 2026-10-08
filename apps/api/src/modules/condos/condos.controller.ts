@@ -10,6 +10,12 @@ import { CondosService } from './condos.service';
 export class CondosController {
   constructor(private readonly condosService: CondosService) {}
 
+  @Post()
+  @ApiOperation({ summary: 'Crear nueva residencia/condominio' })
+  async create(@Body() body: any) {
+    return this.condosService.createCondo(body);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Listar condominios (con filtro opcional por tenant)' })
   async findAll(@Query('tenantId') tenantId?: string) {
