@@ -6,7 +6,28 @@ import { ReportPaymentDto } from './dto/report-payment.dto';
 export class PaymentsService {
   constructor(private readonly db: DatabaseService) {}
 
-  async reportPayment(userId: string, dto: ReportPaymentDto) {
+  async reportPayment(user: any, dto: ReportPaymentDto) {
+    const userId = user.id;
+    const isSuperadmin = user.is_superadmin === true;
+
+    // 0. Aislamiento de rol: solo el propietario/residente de la unidad (o la
+    //    administración) puede reportar pagos para ese inmueble. Sin esto,
+    //    cualquier usuario autenticado podía cargar pagos de unidades ajenas.
+    if (!isSuperadmin) {
+      const ownerRes = await this.db.query(
+        `SELECT 1 FROM unit_occupants uo
+         JOIN property_units pu ON pu.id = uo.property_unit_id
+         WHERE uo.user_id = $1 AND pu.id = $2 AND pu.is_active = TRUE
+         LIMIT 1`,
+        [userId, dto.propertyUnitId],
+      );
+      if (ownerRes.rows.length === 0) {
+        throw new BadRequestException(
+          'Solo puedes reportar pagos de inmuebles donde eres propietario o residente.',
+        );
+      }
+    }
+
     // 1. Verificar si la referencia ya fue reportada para evitar duplicados
     const dupCheck = await this.db.query(
       `SELECT id, status, payment_date FROM payment_reports 
@@ -46,6 +67,26 @@ export class PaymentsService {
       }
     }
 
+    // 3. Vínculo al recibo que el propietario está pagando (opcional). El
+    //    recibo debe pertenecer al inmueble del reporte. Se guarda como
+    //    contexto para la conciliación: los fondos se aplican a la deuda más
+    //    antigua (FIFO) como siempre, pero la administración ve qué mes
+    //    pretendía pagar el propietario.
+    let condoBillId: string | null = null;
+    if (dto.billingPeriodId) {
+      const billRes = await this.db.query(
+        `SELECT cb.id FROM condo_bills cb
+         WHERE cb.billing_period_id = $1 AND cb.property_unit_id = $2`,
+        [dto.billingPeriodId, dto.propertyUnitId],
+      );
+      if (billRes.rows.length === 0) {
+        throw new BadRequestException(
+          'El recibo seleccionado no corresponde a este inmueble.',
+        );
+      }
+      condoBillId = billRes.rows[0].id;
+    }
+
     // 4. Obtener la tasa de cambio BCV oficial aplicable a la fecha del pago.
     //    Sin tasa registrada no se inventa un valor: se guarda el monto tal cual
     //    lo reportó el residente, sin equivalente en dólares inventado.
@@ -69,8 +110,9 @@ export class PaymentsService {
         condo_id, property_unit_id, reported_by_user_id, bank_account_id,
         payment_method, reference_number, payment_date, origin_bank,
         origin_phone, origin_doc_number, currency, amount_paid,
-        exchange_rate_applied, equivalent_usd, receipt_image_url, notes, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'PENDING')
+        exchange_rate_applied, equivalent_usd, receipt_image_url, notes,
+        origin_email, condo_bill_id, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'PENDING')
       RETURNING *`,
       [
         dto.condoId,
@@ -89,6 +131,8 @@ export class PaymentsService {
         equivalentUsd,
         dto.receiptImageUrl || null,
         dto.notes || null,
+        dto.originEmail || null,
+        condoBillId,
       ],
     );
 
@@ -154,11 +198,15 @@ export class PaymentsService {
       SELECT pr.*, 
              pu.unit_code, b.name as building_name,
              ba.bank_name, ba.account_number,
-             concat(u.first_name, ' ', u.last_name) as reported_by_name
+             concat(u.first_name, ' ', u.last_name) as reported_by_name,
+             bp.period_year, bp.period_month,
+             concat(bp.period_year, '-', lpad(bp.period_month::text, 2, '0')) as linked_period
       FROM payment_reports pr
       JOIN property_units pu ON pu.id = pr.property_unit_id
       LEFT JOIN buildings b ON b.id = pu.building_id
       LEFT JOIN bank_accounts ba ON ba.id = pr.bank_account_id
+      LEFT JOIN condo_bills cb ON cb.id = pr.condo_bill_id
+      LEFT JOIN billing_periods bp ON bp.id = cb.billing_period_id
       JOIN users u ON u.id = pr.reported_by_user_id
       WHERE pr.condo_id = $1
     `;
@@ -173,6 +221,145 @@ export class PaymentsService {
 
     const res = await this.db.query(query, params);
     return res.rows;
+  }
+
+  // Recibos del propietario actual en todas sus residencias (portal de pagos).
+  // Agrupa por residencia → unidad → recibo, calcula el estado visible
+  // (PAGADO / PARCIAL / PENDIENTE / MOROSO / CANCELADO) y trae las cuentas
+  // receptoras de cada residencia para el formulario de reporte.
+  async getMyBills(userId: string) {
+    const months = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    ];
+
+    const res = await this.db.query(
+      `SELECT c.id AS condo_id, c.name AS condo_name, c.rif AS condo_rif, c.address AS condo_address,
+              pu.id AS unit_id, pu.unit_code, bld.name AS building_name, pu.floor, pu.unit_type,
+              cb.id AS bill_id, cb.billing_period_id,
+              cb.total_due_usd, cb.total_paid_usd, cb.remaining_balance_usd, cb.status AS bill_status,
+              bp.period_year, bp.period_month, bp.issue_date, bp.due_date, bp.status AS period_status,
+              CASE
+                WHEN cb.status = 'CANCELLED' THEN 'CANCELLED'
+                WHEN cb.remaining_balance_usd <= 0 THEN 'PAID'
+                WHEN cb.total_paid_usd > 0 THEN 'PARTIAL'
+                WHEN bp.due_date < CURRENT_DATE THEN 'OVERDUE'
+                ELSE 'PENDING'
+              END AS display_status,
+              (SELECT COUNT(*)::int FROM payment_reports pr
+               WHERE pr.condo_bill_id = cb.id AND pr.status = 'PENDING') AS pending_reports
+       FROM unit_occupants uo
+       JOIN property_units pu ON pu.id = uo.property_unit_id AND pu.is_active = TRUE
+       JOIN condos c ON c.id = pu.condo_id
+       LEFT JOIN buildings bld ON bld.id = pu.building_id
+       LEFT JOIN condo_bills cb ON cb.property_unit_id = pu.id
+         AND (cb.total_due_usd <> 0 OR cb.total_paid_usd <> 0 OR cb.remaining_balance_usd <> 0)
+       LEFT JOIN billing_periods bp ON bp.id = cb.billing_period_id
+       WHERE uo.user_id = $1
+       ORDER BY c.name ASC, pu.unit_code ASC, bp.period_year DESC, bp.period_month DESC`,
+      [userId],
+    );
+
+    // Cuentas receptoras de las residencias del propietario.
+    const condoIds = [...new Set(res.rows.map((r) => r.condo_id))].filter(Boolean);
+    const accountsByCondo = new Map<string, any[]>();
+    if (condoIds.length > 0) {
+      const accRes = await this.db.query(
+        `SELECT ba.*, c.name AS condo_name
+         FROM bank_accounts ba
+         JOIN condos c ON c.id = ba.condo_id
+         WHERE ba.condo_id = ANY($1::uuid[]) AND ba.is_active = TRUE
+         ORDER BY ba.bank_name ASC`,
+        [condoIds],
+      );
+      for (const a of accRes.rows) {
+        const list = accountsByCondo.get(a.condo_id) || [];
+        list.push(a);
+        accountsByCondo.set(a.condo_id, list);
+      }
+    }
+
+    // Agrupar residencia → unidad → recibos.
+    const condosMap = new Map<string, any>();
+    for (const row of res.rows) {
+      if (!row.condo_id) continue;
+      let condo = condosMap.get(row.condo_id);
+      if (!condo) {
+        condo = {
+          id: row.condo_id,
+          name: row.condo_name,
+          rif: row.condo_rif,
+          address: row.condo_address,
+          bankAccounts: accountsByCondo.get(row.condo_id) || [],
+          units: [],
+        };
+        condosMap.set(row.condo_id, condo);
+      }
+      if (!row.unit_id) continue;
+      let unit = condo.units.find((u: any) => u.id === row.unit_id);
+      if (!unit) {
+        unit = {
+          id: row.unit_id,
+          unitCode: row.unit_code,
+          buildingName: row.building_name,
+          floor: row.floor,
+          unitType: row.unit_type,
+          balanceUsd: 0,
+          bills: [],
+        };
+        condo.units.push(unit);
+      }
+      if (!row.bill_id) continue;
+      const bill = {
+        billId: row.bill_id,
+        periodId: row.billing_period_id,
+        periodLabel:
+          row.period_year && row.period_month
+            ? `${months[row.period_month - 1]} ${row.period_year}`
+            : null,
+        periodYear: row.period_year,
+        periodMonth: row.period_month,
+        issueDate: row.issue_date,
+        dueDate: row.due_date,
+        totalDueUsd: Number(row.total_due_usd || 0),
+        totalPaidUsd: Number(row.total_paid_usd || 0),
+        remainingUsd: Number(row.remaining_balance_usd || 0),
+        status: row.display_status,
+        pendingPayments: Number(row.pending_reports || 0),
+      };
+      unit.bills.push(bill);
+      unit.balanceUsd = Number((unit.balanceUsd + bill.remainingUsd).toFixed(2));
+    }
+
+    const condos = [...condosMap.values()];
+    let totalDebtUsd = 0;
+    let totalDueUsd = 0;
+    let openBills = 0;
+    let unitsCount = 0;
+    let pendingPayments = 0;
+    for (const c of condos) {
+      for (const u of c.units) {
+        unitsCount++;
+        for (const bill of u.bills) {
+          totalDebtUsd = Number((totalDebtUsd + bill.remainingUsd).toFixed(2));
+          totalDueUsd = Number((totalDueUsd + bill.totalDueUsd).toFixed(2));
+          if (bill.remainingUsd > 0.004 && bill.status !== 'CANCELLED') openBills++;
+          pendingPayments += bill.pendingPayments;
+        }
+      }
+    }
+
+    return {
+      summary: {
+        totalDebtUsd,
+        totalDueUsd,
+        openBills,
+        unitsCount,
+        condosCount: condos.length,
+        pendingPayments,
+      },
+      condos,
+    };
   }
 
   async verifyPayment(paymentId: string, verifiedByUserId: string, approved: boolean, reason?: string) {

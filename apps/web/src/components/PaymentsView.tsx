@@ -153,6 +153,7 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
               <tr>
                 <th className="py-3 px-4">Fecha</th>
                 <th className="py-3 px-4">Inmueble / Reportado por</th>
+                <th className="py-3 px-4">Recibo</th>
                 <th className="py-3 px-4">Método / Referencia</th>
                 <th className="py-3 px-4">Banco Destino</th>
                 <th className="py-3 px-4 text-right">Monto Pagado</th>
@@ -173,6 +174,15 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
                       <div className="text-[11px] text-slate-400">{p.reported_by_name}</div>
                     </td>
                     <td className="py-3.5 px-4">
+                      {p.linked_period ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono text-[10px] font-bold">
+                          {p.linked_period}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4">
                       <div className="flex items-center gap-1.5 font-bold text-slate-800">
                         <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
                         <span>{p.payment_method}</span>
@@ -181,10 +191,14 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="font-medium text-slate-800">{p.bank_name || '—'}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">0414-1234567</div>
+                      <div className="text-[11px] text-slate-400 font-mono">
+                        {p.account_number ? `···${String(p.account_number).slice(-4)}` : ''}
+                      </div>
                     </td>
                     <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
-                      Bs. {Number(p.amount_paid).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                      {p.currency === 'USD'
+                        ? `US$ ${Number(p.amount_paid).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                        : `Bs. ${Number(p.amount_paid).toLocaleString('es-VE', { minimumFractionDigits: 2 })}`}
                     </td>
                     <td className="py-3.5 px-4 text-right font-bold text-emerald-700">
                       ${Number(p.equivalent_usd).toFixed(2)}
@@ -230,7 +244,7 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-slate-400">
+                  <td colSpan={9} className="text-center py-8 text-slate-400">
                     No hay reportes de pago registrados aún.
                   </td>
                 </tr>

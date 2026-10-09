@@ -14,7 +14,13 @@ export class PaymentsController {
   @Post('report')
   @ApiOperation({ summary: 'Reportar pago (Pago Móvil, Transferencia, Zelle, etc.) con cálculo BCV y autoconciliación' })
   async reportPayment(@Request() req: any, @Body() dto: ReportPaymentDto) {
-    return this.paymentsService.reportPayment(req.user.id, dto);
+    return this.paymentsService.reportPayment(req.user, dto);
+  }
+
+  @Get('my-bills')
+  @ApiOperation({ summary: 'Recibos del propietario actual en todas sus residencias (portal de pagos)' })
+  async getMyBills(@Request() req: any) {
+    return this.paymentsService.getMyBills(req.user.id);
   }
 
   @Get('condos/:condoId')

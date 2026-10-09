@@ -10,10 +10,11 @@ import { BillsView } from '../components/BillsView';
 import { PaymentsView } from '../components/PaymentsView';
 import { UnitsView } from '../components/UnitsView';
 import { AccessView } from '../components/AccessView';
+import { MyBillsView } from '../components/MyBillsView';
 import { ProfileModal } from '../components/ProfileModal';
 import { CondoSelectorModal } from '../components/CondoSelectorModal';
 import { BankAccountsModal } from '../components/BankAccountsModal';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, setDevUserEmail } from '../lib/api';
 
 /**
  * Estado inicial sin residencia cargada. Antes se arrancaba con una residencia
@@ -54,7 +55,15 @@ export default function Home() {
     phone: '+584120000000',
     docNumber: '18456123',
     role: 'Super Administrador',
+    isSuperadmin: true,
   });
+
+  // Cambio de usuario demo (modo propietario): se guarda el email elegido y se
+  // recarga la app para emitir un token nuevo y refrescar todo el estado.
+  const handleUserChange = (email: string) => {
+    setDevUserEmail(email);
+    window.location.reload();
+  };
 
   // 1. Cargar lista de condominios al iniciar
   const loadCondos = async () => {
@@ -104,17 +113,28 @@ export default function Home() {
       const unitsRes = await fetchWithAuth(`/condos/${condoId}/units`).catch(() => []);
       if (Array.isArray(unitsRes)) setUnits(unitsRes);
 
+      // Pagos reportados por residentes (Conciliación). Sin esta carga la
+      // pantalla de Conciliación siempre decía "no hay reportes" aunque el
+      // backend tuviera pagos pendientes.
+      const paysRes = await fetchWithAuth(`/payments/condos/${condoId}`).catch(() => []);
+      if (Array.isArray(paysRes)) setPayments(paysRes);
+
       // Perfil de usuario
       const meRes = await fetchWithAuth('/auth/me').catch(() => null);
       if (meRes?.user) {
+        const isSuper = Boolean(meRes.user.is_superadmin);
         setUserProfile({
           firstName: meRes.user.first_name,
           lastName: meRes.user.last_name,
           email: meRes.user.email,
           phone: meRes.user.phone,
           docNumber: meRes.user.doc_number,
-          role: meRes.user.is_superadmin ? 'Super Administrador' : 'Administrador',
+          role: isSuper ? 'Super Administrador' : 'Propietario · Portal de Recibos',
+          isSuperadmin: isSuper,
         });
+        // Un propietario entra directo a su portal de recibos: los módulos de
+        // administración no aplican a su sesión.
+        if (!isSuper) setCurrentTab('my-bills');
       }
     } catch (err) {
       console.error('Error loading condo data:', err);
@@ -134,7 +154,11 @@ export default function Home() {
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
       {/* Barra Lateral de Navegación */}
-      <Sidebar currentTab={currentTab} onTabChange={setCurrentTab} />
+      <Sidebar
+        currentTab={currentTab}
+        onTabChange={setCurrentTab}
+        isSuperadmin={userProfile.isSuperadmin}
+      />
 
       {/* Contenido Principal */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -144,14 +168,19 @@ export default function Home() {
           condoRif={selectedCondo?.rif || '—'}
           condoLocation={[selectedCondo?.city, selectedCondo?.state].filter(Boolean).join(', ') || '—'}
           userName={`${userProfile.firstName} ${userProfile.lastName}`}
+          userEmail={userProfile.email}
+          isSuperadmin={userProfile.isSuperadmin}
+          onUserChange={handleUserChange}
           onOpenProfile={() => setShowProfileModal(true)}
           onOpenCondoSelector={() => setShowCondoSelectorModal(true)}
         />
 
         <main className="flex-1 p-6 md:p-8 max-w-7xl mx-auto w-full">
           {/* Sin residencia cargada no se pinta ninguna vista de datos: antes se
-              mostraba la del resumen de una residencia fija. */}
-          {!selectedCondo.id && currentTab !== 'access' && (
+              mostraba la del resumen de una residencia fija. El portal de
+              recibos del propietario es multi-residencia, así que tampoco
+              aplica aquí. */}
+          {!selectedCondo.id && currentTab !== 'access' && currentTab !== 'my-bills' && (
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-10 text-center">
               <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
               <h2 className="font-bold text-slate-800">No hay una residencia seleccionada</h2>
@@ -212,6 +241,11 @@ export default function Home() {
 
           {currentTab === 'access' && (
             <AccessView />
+          )}
+
+          {/* Portal del Propietario: recibos en todas sus residencias */}
+          {currentTab === 'my-bills' && (
+            <MyBillsView bcvRate={bcvRate} />
           )}
         </main>
       </div>

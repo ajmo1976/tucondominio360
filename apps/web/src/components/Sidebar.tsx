@@ -15,17 +15,22 @@ import {
 interface SidebarProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
+  isSuperadmin: boolean;
 }
 
-export function Sidebar({ currentTab, onTabChange }: SidebarProps) {
-  const menuItems = [
-    { id: 'dashboard', label: 'Dashboard General', icon: LayoutDashboard },
-    { id: 'expenses', label: 'Gastos y Facturas', icon: FileSpreadsheet },
-    { id: 'bills', label: 'Gestación de Recibos', icon: Receipt },
-    { id: 'payments', label: 'Conciliación de Pagos', icon: ArrowLeftRight },
-    { id: 'units', label: 'Propietarios y Alícuotas', icon: Home },
-    { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
-  ];
+export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps) {
+  // En modo propietario (portal de recibos) el menú se reduce a lo que el
+  // dueño necesita; la administración conserva todos los módulos.
+  const menuItems = isSuperadmin
+    ? [
+        { id: 'dashboard', label: 'Dashboard General', icon: LayoutDashboard },
+        { id: 'expenses', label: 'Gastos y Facturas', icon: FileSpreadsheet },
+        { id: 'bills', label: 'Gestación de Recibos', icon: Receipt },
+        { id: 'payments', label: 'Conciliación de Pagos', icon: ArrowLeftRight },
+        { id: 'units', label: 'Propietarios y Alícuotas', icon: Home },
+        { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
+      ]
+    : [{ id: 'my-bills', label: 'Mis Recibos', icon: Receipt }];
 
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between shrink-0 min-h-screen">
@@ -45,15 +50,17 @@ export function Sidebar({ currentTab, onTabChange }: SidebarProps) {
           </div>
         </div>
 
-        {/* Badge de Empresa Administradora (Tenant) */}
-        <div className="p-4 mx-3 my-4 bg-slate-800/60 rounded-xl border border-slate-700/50">
-          <div className="flex items-center space-x-2 text-xs text-emerald-400 font-semibold mb-1">
-            <Shield className="w-3.5 h-3.5" />
-            <span>Tenant Administradora</span>
+        {/* Badge de Empresa Administradora (Tenant) — solo modo administración */}
+        {isSuperadmin && (
+          <div className="p-4 mx-3 my-4 bg-slate-800/60 rounded-xl border border-slate-700/50">
+            <div className="flex items-center space-x-2 text-xs text-emerald-400 font-semibold mb-1">
+              <Shield className="w-3.5 h-3.5" />
+              <span>Tenant Administradora</span>
+            </div>
+            <p className="text-sm font-medium text-white truncate">Admin Inmobiliaria Capital</p>
+            <p className="text-[11px] text-slate-400">J-31456789-0</p>
           </div>
-          <p className="text-sm font-medium text-white truncate">Admin Inmobiliaria Capital</p>
-          <p className="text-[11px] text-slate-400">J-31456789-0</p>
-        </div>
+        )}
 
         {/* Menú de Navegación */}
         <nav className="px-3 space-y-1">

@@ -41,6 +41,19 @@ export class ReportPaymentDto {
   @IsOptional()
   originPhone?: string;
 
+  @ApiProperty({ example: 'correo.pagador@gmail.com', description: 'Email asociado (Zelle)', required: false })
+  @IsString()
+  @IsOptional()
+  originEmail?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Recibo (billing_period_id) que el propietario está pagando. Se guarda como vínculo para la conciliación; los fondos se aplican a la deuda más antigua (FIFO).',
+  })
+  @IsUUID()
+  @IsOptional()
+  billingPeriodId?: string;
+
   @ApiProperty({ example: '18456123', description: 'Cédula o RIF del pagador' })
   @IsString()
   @IsOptional()

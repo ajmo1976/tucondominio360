@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Building2, Bell, ChevronDown, UserCog } from 'lucide-react';
+import { Building2, Bell, ChevronDown, UserCog, Users } from 'lucide-react';
+import { DEV_USERS, getDevUserEmail } from '../lib/api';
 
 interface HeaderProps {
   bcvRate: string;
@@ -9,8 +10,21 @@ interface HeaderProps {
   condoRif: string;
   condoLocation: string;
   userName: string;
+  userEmail: string;
+  isSuperadmin: boolean;
+  onUserChange: (email: string) => void;
   onOpenProfile: () => void;
   onOpenCondoSelector: () => void;
+}
+
+/** Iniciales a partir del nombre (p. ej. "Leticia Sucre" → "LS"). */
+function initialsOf(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join('');
 }
 
 export function Header({
@@ -19,9 +33,14 @@ export function Header({
   condoRif,
   condoLocation,
   userName,
+  userEmail,
+  isSuperadmin,
+  onUserChange,
   onOpenProfile,
   onOpenCondoSelector,
 }: HeaderProps) {
+  const demoUser = getDevUserEmail();
+
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
       {/* Selector de Condominio Activo (Clickable para cambiar) */}
@@ -64,8 +83,24 @@ export function Header({
           </span>
         </div>
 
+        {/* Selector de usuario demo (modo propietario) */}
+        <div className="hidden lg:flex items-center space-x-2 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1" title="Modo demo: prueba el portal como propietario o vuelve a la administración">
+          <Users className="w-3.5 h-3.5 text-slate-400" />
+          <select
+            value={demoUser}
+            onChange={(e) => onUserChange(e.target.value)}
+            className="bg-transparent text-xs text-slate-700 font-semibold focus:outline-none cursor-pointer"
+          >
+            {DEV_USERS.map((u) => (
+              <option key={u.email} value={u.email}>
+                {u.label} · {u.roleLabel}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Notificaciones */}
-        <button className="relative p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition">
+        <button className="relative p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition hidden sm:block">
           <Bell className="w-5 h-5" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full"></span>
         </button>
@@ -77,14 +112,14 @@ export function Header({
           title="Haz clic para editar tus datos de usuario"
         >
           <div className="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center font-semibold text-sm group-hover:bg-emerald-600 transition">
-            AM
+            {initialsOf(userName)}
           </div>
           <div className="hidden md:block text-xs">
             <p className="font-semibold text-slate-800 leading-tight group-hover:text-emerald-700 transition">
-              {userName || 'Arnaldo Martínez'}
+              {userName || userEmail || '—'}
             </p>
             <p className="text-emerald-600 font-medium flex items-center gap-1">
-              <span>Super Administrador</span>
+              <span>{isSuperadmin ? 'Super Administrador' : 'Propietario · Portal de Recibos'}</span>
               <UserCog className="w-3 h-3 text-slate-400 group-hover:text-emerald-600" />
             </p>
           </div>
