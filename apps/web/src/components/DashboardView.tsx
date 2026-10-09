@@ -105,7 +105,7 @@ export function DashboardView({
         <div className="flex items-center space-x-2">
           <span className="text-xs font-semibold px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded-full flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            Período Activo: {summary?.latestBillingPeriod ? `Mes ${summary.latestBillingPeriod.period_month} / ${summary.latestBillingPeriod.period_year}` : 'Octubre 2026'}
+            Período Activo: {summary?.latestBillingPeriod ? `Mes ${summary.latestBillingPeriod.period_month} / ${summary.latestBillingPeriod.period_year}` : 'Sin período aperturado'}
           </span>
         </div>
       </div>
@@ -212,6 +212,7 @@ export function DashboardView({
                   ) : (
                     `≈ Bs. ${(totalOrdinaryUsd * rateNum).toLocaleString('es-VE', {
                       minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
                     })}`
                   )}
                 </p>
@@ -237,6 +238,7 @@ export function DashboardView({
                   ) : (
                     `≈ Bs. ${(totalExtraordinaryUsd * rateNum).toLocaleString('es-VE', {
                       minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
                     })}`
                   )}
                 </p>

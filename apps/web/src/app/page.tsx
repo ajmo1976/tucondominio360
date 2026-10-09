@@ -62,8 +62,16 @@ export default function Home() {
       const res = await fetchWithAuth('/condos').catch(() => []);
       if (Array.isArray(res) && res.length > 0) {
         setCondos(res);
-        const target = res.find((c: any) => c.id === selectedCondo?.id) || res[0];
+        // Recordar la última residencia elegida: el dashboard abre en la que el
+        // usuario dejó seleccionada, no siempre en la primera alfabética.
+        const savedId = typeof window !== 'undefined' ? window.localStorage.getItem('tc360.selectedCondoId') : null;
+        const target =
+          res.find((c: any) => c.id === (selectedCondo?.id || savedId)) ||
+          res[0];
         setSelectedCondo(target);
+        if (target?.id && typeof window !== 'undefined') {
+          window.localStorage.setItem('tc360.selectedCondoId', target.id);
+        }
         loadCondoData(target.id);
       }
     } catch (err) {
@@ -222,7 +230,12 @@ export default function Home() {
         <CondoSelectorModal
           condos={condos}
           selectedCondo={selectedCondo}
-          onSelectCondo={(condo) => setSelectedCondo(condo)}
+          onSelectCondo={(condo) => {
+            setSelectedCondo(condo);
+            if (condo?.id && typeof window !== 'undefined') {
+              window.localStorage.setItem('tc360.selectedCondoId', condo.id);
+            }
+          }}
           onClose={() => setShowCondoSelectorModal(false)}
           onCondoUpdated={() => {
             loadCondos();
