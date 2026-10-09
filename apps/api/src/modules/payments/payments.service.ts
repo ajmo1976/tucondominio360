@@ -108,6 +108,18 @@ export class PaymentsService {
     let isAutoReconciled = false;
     if (bankTxMatch.rows.length > 0) {
       const tx = bankTxMatch.rows[0];
+
+      // Descontar de la deuda ANTES de marcar el pago como verificado: si el
+      // descuento falla, el pago queda PENDING y el banco sin conciliar.
+      try {
+        await this.applyPaymentToDebt(newPayment.property_unit_id, equivalentUsd);
+      } catch (err) {
+        console.error('No se pudo descontar el pago de la deuda:', err);
+        throw new BadRequestException(
+          'El pago coincidió con el extracto bancario, pero no se pudo descontar de la deuda. Intenta verificarlo manualmente.',
+        );
+      }
+
       // Vincular y conciliar automáticamente
       await this.db.query(
         `UPDATE bank_transactions 
@@ -173,7 +185,27 @@ export class PaymentsService {
       throw new NotFoundException('Pago no encontrado');
     }
 
+    const payment = paymentRes.rows[0];
+    const wasAlreadyVerified = payment.status === 'VERIFIED';
     const newStatus = approved ? 'VERIFIED' : 'REJECTED';
+
+    // Descontar primero de la deuda y solo después marcar el pago: si el
+    // descuento falla, el pago conserva su estado (PENDING) y el error es
+    // visible para la administración. Un pago ya VERIFIED (p. ej. conciliado
+    // automáticamente) no se vuelve a descontar.
+    if (approved && !wasAlreadyVerified) {
+      const equivalentUsd = Number(payment.equivalent_usd || 0);
+      if (equivalentUsd > 0) {
+        try {
+          await this.applyPaymentToDebt(payment.property_unit_id, equivalentUsd);
+        } catch (err) {
+          console.error('No se pudo descontar el pago de la deuda:', err);
+          throw new BadRequestException(
+            'El pago no se pudo descontar de la deuda del inmueble. Intenta nuevamente.',
+          );
+        }
+      }
+    }
 
     const updateRes = await this.db.query(
       `UPDATE payment_reports
@@ -184,5 +216,82 @@ export class PaymentsService {
     );
 
     return updateRes.rows[0];
+  }
+
+  // Descuenta un pago verificado de la deuda de un inmueble: recorre sus
+  // recibos abiertos del más antiguo al más reciente (FIFO), reduce el
+  // remaining_balance_usd de cada uno y sincroniza current_balance_usd de la
+  // unidad, que es la fuente de la morosidad del dashboard.
+  // Un pago mayor a la deuda deja el excedente como crédito a favor (saldo
+  // negativo en la unidad).
+  private async applyPaymentToDebt(unitId: string, equivalentUsd: number) {
+    const client = await this.db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const billsRes = await client.query(
+        `SELECT cb.id, cb.remaining_balance_usd, cb.total_paid_usd
+         FROM condo_bills cb
+         JOIN billing_periods bp ON bp.id = cb.billing_period_id
+         WHERE cb.property_unit_id = $1 AND cb.remaining_balance_usd > 0
+         ORDER BY bp.period_year ASC, bp.period_month ASC
+         FOR UPDATE`,
+        [unitId],
+      );
+
+      let leftoverUsd = Number(equivalentUsd) || 0;
+      let appliedUsd = 0;
+
+      for (const bill of billsRes.rows) {
+        if (leftoverUsd <= 0) break;
+        const billRemaining = Number(bill.remaining_balance_usd);
+        const applied = Number(Math.min(billRemaining, leftoverUsd).toFixed(2));
+        const newRemaining = Number((billRemaining - applied).toFixed(2));
+        const newPaid = Number((Number(bill.total_paid_usd || 0) + applied).toFixed(2));
+
+        await client.query(
+          `UPDATE condo_bills
+           SET remaining_balance_usd = $1,
+               total_paid_usd = $2,
+               status = CASE WHEN $1::numeric <= 0 THEN 'PAID'::bill_status ELSE status END,
+               updated_at = NOW()
+           WHERE id = $3`,
+          [newRemaining, newPaid, bill.id],
+        );
+
+        appliedUsd = Number((appliedUsd + applied).toFixed(2));
+        leftoverUsd = Number((leftoverUsd - applied).toFixed(2));
+      }
+
+      // Sincronizar la morosidad del inmueble: baja por el monto efectivamente
+      // aplicado a sus recibos, sin volverse negativa. Si el pago supera la
+      // deuda, el excedente se reporta como excessUsd para que la
+      // administración lo gestione (p. ej. abono a un próximo período).
+      await client.query(
+        `UPDATE property_units
+         SET current_balance_usd = GREATEST(0, ROUND((current_balance_usd - $1::numeric)::numeric, 2)),
+             updated_at = NOW()
+         WHERE id = $2`,
+        [appliedUsd, unitId],
+      );
+
+      const balanceRes = await client.query(
+        `SELECT current_balance_usd FROM property_units WHERE id = $1`,
+        [unitId],
+      );
+
+      await client.query('COMMIT');
+
+      return {
+        appliedUsd,
+        excessUsd: Number(leftoverUsd.toFixed(2)),
+        unitBalanceUsd: Number(balanceRes.rows[0]?.current_balance_usd || 0),
+      };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 }

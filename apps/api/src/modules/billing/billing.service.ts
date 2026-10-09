@@ -251,10 +251,23 @@ export class BillingService {
   }
 
   async deleteBillingPeriod(periodId: string) {
+    const periodRes = await this.db.query(
+      `SELECT condo_id FROM billing_periods WHERE id = $1`,
+      [periodId],
+    );
+
     const res = await this.db.query(
       `DELETE FROM billing_periods WHERE id = $1 RETURNING id`,
       [periodId],
     );
+
+    // El borrado del período arrastra sus recibos (ON DELETE CASCADE); se
+    // re-sincronizan los saldos para que la deuda refleje solo los períodos
+    // que siguen aperturados.
+    if (res.rows.length > 0 && periodRes.rows[0]) {
+      await this.syncUnitBalances(periodRes.rows[0].condo_id);
+    }
+
     return { success: true, deletedId: res.rows[0]?.id };
   }
   async createBillingPeriod(condoId: string, data: any) {
@@ -351,9 +364,14 @@ export class BillingService {
     );
 
     const unitsRes = await this.db.query(
-      `SELECT id, unit_code, aliquot_percentage, current_balance_usd, has_gas_service
-       FROM property_units WHERE condo_id = $1 AND is_active = TRUE`,
-      [period.condo_id],
+      `SELECT pu.id, pu.unit_code, pu.aliquot_percentage, pu.current_balance_usd, pu.has_gas_service,
+              COALESCE((
+                SELECT SUM(cb.remaining_balance_usd) FROM condo_bills cb
+                WHERE cb.property_unit_id = pu.id AND cb.billing_period_id != $2
+              ), 0)::numeric(14,2) as prev_debt_usd
+       FROM property_units pu
+       WHERE pu.condo_id = $1 AND pu.is_active = TRUE`,
+      [period.condo_id, periodId],
     );
 
     // El gas se reparte solo entre los inmuebles con servicio de gas, usando la
@@ -441,7 +459,10 @@ export class BillingService {
       const extraordinaryShareUsd = extraordinaryShares[idx];
       const commonShareUsd = Number((ordinaryShareUsd + extraordinaryShareUsd).toFixed(2));
       const unitReserveFundUsd = reserveShares[idx];
-      const previousDebtUsd = Number(unit.current_balance_usd > 0 ? unit.current_balance_usd : 0);
+      // La deuda previa se toma de la suma de lo que queda por pagar en
+      // recibos de OTROS períodos (no del actual): así recalcular este período
+      // no contabiliza su propia facturación dos veces.
+      const previousDebtUsd = Number(unit.prev_debt_usd || 0);
       const creditAppliedUsd = Number(unit.current_balance_usd < 0 ? Math.abs(unit.current_balance_usd) : 0);
       const totalDueUsd = ordinaryShareUsd + extraordinaryShareUsd + unitReserveFundUsd + previousDebtUsd - creditAppliedUsd;
       const totalDueVes = Number((totalDueUsd * bcvRate).toFixed(2));
@@ -462,7 +483,9 @@ export class BillingService {
           reserve_fund_usd = EXCLUDED.reserve_fund_usd,
           total_due_usd = EXCLUDED.total_due_usd,
           total_due_ves = EXCLUDED.total_due_ves,
-          remaining_balance_usd = EXCLUDED.remaining_balance_usd,
+          -- Si el recibo ya tenía pagos no se resetea: el saldo pendiente se
+          -- recalcula como (total adeudado - pagado) sin tocar lo pagado.
+          remaining_balance_usd = GREATEST(EXCLUDED.total_due_usd - condo_bills.total_paid_usd, 0),
           updated_at = NOW()`,
         [
           period.condo_id,
@@ -484,6 +507,12 @@ export class BillingService {
       );
     }
 
+    // Sincronizar la morosidad: el saldo de cada inmueble pasa a ser la suma
+    // de lo que queda por pagar en sus recibos abiertos. El dashboard lee
+    // current_balance_usd para mostrar deuda, así que sin este paso la
+    // facturación existe pero la morosidad siempre aparece en cero.
+    await this.syncUnitBalances(period.condo_id);
+
     return {
       success: true,
       message: `Se calcularon y generaron exitosamente los recibos para ${unitsRes.rows.length} apartamentos`,
@@ -494,5 +523,22 @@ export class BillingService {
       grandTotalVes,
       unitsCount: unitsRes.rows.length,
     };
+  }
+
+  // Recalcula current_balance_usd de todos los inmuebles de un condominio a
+  // partir de la suma de los remaining_balance_usd de sus recibos abiertos.
+  // El saldo nunca es negativo: los excedentes de pago se reportan en la
+  // respuesta del endpoint de pagos, no se descuentan de la unidad.
+  private async syncUnitBalances(condoId: string) {
+    await this.db.query(
+      `UPDATE property_units pu
+       SET current_balance_usd = GREATEST(0, ROUND(COALESCE((
+             SELECT SUM(cb.remaining_balance_usd) FROM condo_bills cb
+             WHERE cb.property_unit_id = pu.id
+           ), 0)::numeric, 2)),
+           updated_at = NOW()
+       WHERE pu.condo_id = $1`,
+      [condoId],
+    );
   }
 }
