@@ -32,6 +32,12 @@ export class UsersController {
     return this.usersService.list(search || '');
   }
 
+  @Get(':id/dashboard')
+  @ApiOperation({ summary: 'Dashboard de un usuario: residencias, roles, unidades, deuda y pagos reportados' })
+  async getDashboard(@Param('id') id: string) {
+    return this.usersService.getDashboard(id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Detalle de un usuario con sus accesos a residencias y unidades' })
   async findOne(@Param('id') id: string) {

@@ -132,6 +132,220 @@ export class UsersService {
     };
   }
 
+  /**
+   * Dashboard de un usuario para la administración: residencias y roles,
+   * unidades asignadas, recibos/deuda y pagos reportados. Da trazabilidad
+   * transparente del estado real de cada persona del sistema.
+   */
+  async getDashboard(id: string) {
+    const months = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    ];
+
+    const userRes = await this.db.query(
+      `SELECT id, email, first_name, last_name, doc_type, doc_number, phone,
+              is_active, is_superadmin, created_at
+       FROM users WHERE id = $1`,
+      [id],
+    );
+    if (userRes.rows.length === 0) throw new NotFoundException('Usuario no encontrado');
+    const user = userRes.rows[0];
+
+    // Residencias donde tiene rol (condo_user_access).
+    const accessesRes = await this.db.query(
+      `SELECT cua.condo_id, c.name AS condo_name, cua.role, cua.is_active
+       FROM condo_user_access cua
+       JOIN condos c ON c.id = cua.condo_id
+       WHERE cua.user_id = $1
+       ORDER BY c.name`,
+      [id],
+    );
+
+    // Unidades que ocupa (unit_occupants).
+    const unitsRes = await this.db.query(
+      `SELECT uo.property_unit_id, uo.role AS occupant_role, uo.valid_from, uo.valid_to,
+              pu.unit_code, pu.unit_type, pu.floor, pu.condo_id, b.name AS building_name
+       FROM unit_occupants uo
+       JOIN property_units pu ON pu.id = uo.property_unit_id
+       LEFT JOIN buildings b ON b.id = pu.building_id
+       WHERE uo.user_id = $1
+       ORDER BY pu.condo_id, pu.unit_code`,
+      [id],
+    );
+
+    // Recibos de las unidades que ocupa el usuario (misma lógica de estado
+    // visible que el portal de propietario: PAGADO / PARCIAL / MOROSO / PENDIENTE).
+    const billsRes = await this.db.query(
+      `SELECT cb.id AS bill_id, pu.unit_code, c.name AS condo_name,
+              bp.period_year, bp.period_month, bp.issue_date, bp.due_date,
+              cb.total_due_usd, cb.total_paid_usd, cb.remaining_balance_usd,
+              cb.status AS bill_status,
+              (SELECT COUNT(*)::int FROM payment_reports pr
+               WHERE pr.condo_bill_id = cb.id AND pr.status = 'PENDING') AS pending_reports
+       FROM unit_occupants uo
+       JOIN property_units pu ON pu.id = uo.property_unit_id
+       JOIN condos c ON c.id = pu.condo_id
+       JOIN condo_bills cb ON cb.property_unit_id = pu.id
+         AND (cb.total_due_usd <> 0 OR cb.total_paid_usd <> 0 OR cb.remaining_balance_usd <> 0)
+       JOIN billing_periods bp ON bp.id = cb.billing_period_id
+       WHERE uo.user_id = $1
+       ORDER BY c.name, pu.unit_code, bp.period_year DESC, bp.period_month DESC`,
+      [id],
+    );
+
+    // Pagos reportados por el usuario.
+    const payRes = await this.db.query(
+      `SELECT pr.id, pu.unit_code, c.name AS condo_name,
+              pr.payment_method, pr.reference_number, pr.payment_date,
+              pr.amount_paid, pr.currency, pr.equivalent_usd, pr.status,
+              pr.notes, pr.rejection_reason, pr.created_at, pr.verified_at
+       FROM payment_reports pr
+       JOIN property_units pu ON pu.id = pr.property_unit_id
+       JOIN condos c ON c.id = pu.condo_id
+       WHERE pr.reported_by_user_id = $1
+       ORDER BY pr.created_at DESC
+       LIMIT 50`,
+      [id],
+    );
+
+    // Agrupar unidades por residencia (y listar las que queden fuera de un
+    // acceso, por consistencia con los datos actuales).
+    const byCondo = new Map<string, any[]>();
+    for (const u of unitsRes.rows) {
+      const list = byCondo.get(u.condo_id) || [];
+      list.push({
+        unitId: u.property_unit_id,
+        unitCode: u.unit_code,
+        unitType: u.unit_type,
+        floor: u.floor,
+        buildingName: u.building_name,
+        occupantRole: u.occupant_role,
+        validFrom: u.valid_from,
+        validTo: u.valid_to,
+      });
+      byCondo.set(u.condo_id, list);
+    }
+
+    const accessCondos = new Set<string>();
+    const condos = accessesRes.rows.map((a) => {
+      accessCondos.add(a.condo_id);
+      return {
+        condoId: a.condo_id,
+        condoName: a.condo_name,
+        role: a.role,
+        accessActive: a.is_active,
+        units: byCondo.get(a.condo_id) || [],
+      };
+    });
+
+    const orphanUnits = unitsRes.rows
+      .filter((u) => !accessCondos.has(u.condo_id))
+      .map((u) => ({
+        unitId: u.property_unit_id,
+        unitCode: u.unit_code,
+        unitType: u.unit_type,
+        floor: u.floor,
+        buildingName: u.building_name,
+        occupantRole: u.occupant_role,
+      }));
+
+    const bills = billsRes.rows.map((b) => {
+      const remaining = Number(b.remaining_balance_usd || 0);
+      const paid = Number(b.total_paid_usd || 0);
+      const status =
+        b.bill_status === 'CANCELLED'
+          ? 'CANCELLED'
+          : remaining <= 0
+            ? 'PAID'
+            : paid > 0
+              ? 'PARTIAL'
+              : b.due_date < new Date().toISOString().slice(0, 10)
+                ? 'OVERDUE'
+                : 'PENDING';
+      const year = b.period_year;
+      const month = b.period_month;
+      return {
+        billId: b.bill_id,
+        unitCode: b.unit_code,
+        condoName: b.condo_name,
+        periodLabel: year && month ? `${months[month - 1]} ${year}` : null,
+        periodYear: year,
+        periodMonth: month,
+        dueDate: b.due_date,
+        issueDate: b.issue_date,
+        totalDueUsd: Number(b.total_due_usd || 0),
+        totalPaidUsd: paid,
+        remainingUsd: remaining,
+        status,
+        pendingReports: Number(b.pending_reports || 0),
+      };
+    });
+
+    let totalDebtUsd = 0;
+    let totalDueUsd = 0;
+    let openBills = 0;
+    let pendingPayments = 0;
+    for (const bill of bills) {
+      totalDebtUsd = Number((totalDebtUsd + bill.remainingUsd).toFixed(2));
+      totalDueUsd = Number((totalDueUsd + bill.totalDueUsd).toFixed(2));
+      if (bill.remainingUsd > 0.004 && bill.status !== 'CANCELLED') openBills++;
+      pendingPayments += bill.pendingReports;
+    }
+
+    let verifiedPaymentsUsd = 0;
+    const paymentReports = payRes.rows.map((p) => {
+      if (p.status === 'VERIFIED') {
+        verifiedPaymentsUsd = Number((verifiedPaymentsUsd + Number(p.equivalent_usd || 0)).toFixed(2));
+      }
+      return {
+        id: p.id,
+        unitCode: p.unit_code,
+        condoName: p.condo_name,
+        method: p.payment_method,
+        referenceNumber: p.reference_number,
+        paymentDate: p.payment_date,
+        amountPaid: Number(p.amount_paid || 0),
+        currency: p.currency,
+        equivalentUsd: Number(p.equivalent_usd || 0),
+        status: p.status,
+        notes: p.notes,
+        rejectionReason: p.rejection_reason,
+        createdAt: p.created_at,
+        verifiedAt: p.verified_at,
+      };
+    });
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        docType: user.doc_type,
+        docNumber: user.doc_number,
+        phone: user.phone,
+        isActive: user.is_active,
+        isSuperadmin: user.is_superadmin,
+        createdAt: user.created_at,
+      },
+      summary: {
+        totalDebtUsd,
+        totalDueUsd,
+        openBills,
+        pendingPayments,
+        verifiedPaymentsUsd,
+        condosCount: condos.length,
+        unitsCount: unitsRes.rows.length,
+        paymentsCount: paymentReports.length,
+      },
+      condos,
+      units: orphanUnits,
+      bills,
+      paymentReports,
+    };
+  }
+
   /** Crea un usuario (con hash bcrypt) y sus asignaciones de residencias/unidades. */
   async create(dto: CreateUserDto) {
     const email = dto.email.trim().toLowerCase();

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Edit2,
+  Eye,
   KeyRound,
   Loader2,
   Plus,
@@ -16,6 +17,7 @@ import { fetchWithAuth, getSession } from '../lib/api';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { UserFormModal, ROLE_LABELS } from './UserFormModal';
 import { ResetPasswordModal } from './ResetPasswordModal';
+import { UserDashboardModal } from './UserDashboardModal';
 
 interface CondoAccess {
   condoId: string;
@@ -56,6 +58,7 @@ export function UsersView() {
   const [showForm, setShowForm] = useState(false);
   const [formUser, setFormUser] = useState<UserRow | null>(null);
   const [resetUser, setResetUser] = useState<UserRow | null>(null);
+  const [dashboardUser, setDashboardUser] = useState<UserRow | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -269,6 +272,13 @@ export function UsersView() {
                       <td className="px-5 py-3">
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            onClick={() => setDashboardUser(u)}
+                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                            title="Ver dashboard del usuario"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
                             onClick={() => openForm(u)}
                             className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
                             title="Editar usuario"
@@ -338,6 +348,14 @@ export function UsersView() {
             setResetUser(null);
             flash('Contraseña restablecida.');
           }}
+        />
+      )}
+
+      {dashboardUser && (
+        <UserDashboardModal
+          userId={dashboardUser.id}
+          userName={`${dashboardUser.first_name} ${dashboardUser.last_name}`}
+          onClose={() => setDashboardUser(null)}
         />
       )}
 
