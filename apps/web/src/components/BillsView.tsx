@@ -18,6 +18,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { BillDetailModal } from './BillDetailModal';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { fetchWithAuth } from '../lib/api';
 import { usd, bcvRate as fmtBcv } from '../lib/format';
 import { useCondoReserveFundRate, formatReserveFundRate } from '../lib/useCondoReserveFundRate';
@@ -36,6 +37,11 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
   const [calculating, setCalculating] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [showNewPeriodModal, setShowNewPeriodModal] = useState(false);
+  // Confirmación de borrado estilo AWS: el usuario lee los riesgos y teclea el
+  // código del recibo (p. ej. "2026-10") para habilitar el botón.
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
+  const [deletingPeriod, setDeletingPeriod] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // % del Fondo de Reserva tomado de la definición de la residencia (nunca cableado)
   const reserveFundRate = useCondoReserveFundRate(condoId);
@@ -161,10 +167,11 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
   };
 
   // Eliminar un período mensual. Solo los períodos SIN gastos (y por tanto sin
-  // pagos) son borrables desde la UI; el backend lo valida igualmente.
-  const handleDeletePeriod = async (period: any, e: React.MouseEvent) => {
+  // pagos) son borrables desde la UI; el backend lo valida igualmente. El
+  // borrado pasa por el modal de doble confirmación (riesgos + teclear el
+  // código del recibo).
+  const handleDeletePeriod = (period: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    const label = `${getMonthName(period.period_month)} ${period.period_year}`;
     const hasExpenses =
       Number(period.total_ordinary_usd || 0) + Number(period.total_extraordinary_usd || 0) > 0;
 
@@ -175,22 +182,24 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
       });
       return;
     }
-    if (
-      !window.confirm(
-        `¿Eliminar el recibo mensual de ${label}?\n\nEl período está vacío (sin gastos) y se borrarán también sus plantillas de recibos individuales. Esta acción no se puede deshacer.`,
-      )
-    ) {
-      return;
-    }
+    setDeleteError(null);
+    setDeleteTarget(period);
+  };
+
+  const confirmDeletePeriod = async () => {
+    if (!deleteTarget) return;
+    setDeletingPeriod(true);
+    setDeleteError(null);
+    const label = `${getMonthName(deleteTarget.period_month)} ${deleteTarget.period_year}`;
     try {
-      await fetchWithAuth(`/billing/periods/${period.id}`, { method: 'DELETE' });
+      await fetchWithAuth(`/billing/periods/${deleteTarget.id}`, { method: 'DELETE' });
       setNotification({ message: `Período de ${label} eliminado.`, type: 'success' });
+      setDeleteTarget(null);
       loadPeriods();
     } catch (err: any) {
-      setNotification({
-        message: err.message || 'No se pudo eliminar el período',
-        type: 'error',
-      });
+      setDeleteError(err.message || 'No se pudo eliminar el período');
+    } finally {
+      setDeletingPeriod(false);
     }
   };
 
@@ -519,6 +528,25 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
       {/* Modal Aviso Individual */}
       {selectedBillForModal && (
         <BillDetailModal bill={selectedBillForModal} onClose={() => setSelectedBillForModal(null)} />
+      )}
+
+      {/* Modal de doble confirmación para eliminar período (estilo AWS) */}
+      {deleteTarget && (
+        <ConfirmDeleteModal
+          title="Eliminar recibo mensual"
+          resourceName={`${getMonthName(deleteTarget.period_month)} ${deleteTarget.period_year}`}
+          typePhrase={`${deleteTarget.period_year}-${String(deleteTarget.period_month).padStart(2, '0')}`}
+          busy={deletingPeriod}
+          error={deleteError}
+          risks={[
+            'Se eliminará el recibo mensual junto con sus plantillas de recibos individuales.',
+            'Si el período tuviera pagos o gastos, el sistema impedirá el borrado.',
+            'Los saldos de los inmuebles se re-sincronizarán automáticamente.',
+            'Esta acción no se puede deshacer ni recuperar.',
+          ]}
+          onConfirm={confirmDeletePeriod}
+          onClose={() => setDeleteTarget(null)}
+        />
       )}
 
       {/* Modal Aperturar Nuevo Mes */}

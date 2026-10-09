@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { X, Building2, MapPin, Shield, Check, Plus, Edit, Trash2 } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { toNum } from '../lib/format';
+import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface CondoSelectorModalProps {
   condos: any[];
@@ -27,6 +28,10 @@ export function CondoSelectorModal({
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  // Confirmación de borrado estilo AWS: el usuario debe leer los riesgos y
+  // teclear el nombre exacto de la residencia para habilitar el botón.
+  const [condoToDelete, setCondoToDelete] = useState<any | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -94,24 +99,21 @@ export function CondoSelectorModal({
   };
 
   // Elimina la residencia y TODOS sus datos. El borrado es definitivo e
-  // irreversible: se confirma dos veces el alcance antes de llamar al backend.
-  const handleDeleteCondo = async (c: any, e: React.MouseEvent) => {
-    e.stopPropagation();
+  // irreversible: primero se abre el modal de doble confirmación (riesgos +
+  // teclear el nombre exacto) y solo ahí se llama al backend.
+  const handleDeleteCondo = async () => {
+    if (!condoToDelete) return;
     if (deletingId) return;
-    const confirmed = window.confirm(
-      `¿Eliminar "${c.name}" (${c.rif || 'sin RIF'}) de forma definitiva?\n\n` +
-        'Se borrarán TODOS sus datos: períodos, recibos, gastos, propietarios, unidades, pagos y cuentas bancarias.\n' +
-        'Esta acción NO se puede deshacer.',
-    );
-    if (!confirmed) return;
-    setDeletingId(c.id);
+    setDeletingId(condoToDelete.id);
+    setDeleteError(null);
     try {
-      await fetchWithAuth(`/condos/${c.id}`, { method: 'DELETE' });
-      setSuccessMsg(`Residencia "${c.name}" eliminada.`);
-      onCondoDeleted(c);
+      await fetchWithAuth(`/condos/${condoToDelete.id}`, { method: 'DELETE' });
+      setSuccessMsg(`Residencia "${condoToDelete.name}" eliminada.`);
+      onCondoDeleted(condoToDelete);
+      setCondoToDelete(null);
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (err: any) {
-      window.alert(err.message || 'No se pudo eliminar la residencia');
+      setDeleteError(err.message || 'No se pudo eliminar la residencia');
     } finally {
       setDeletingId(null);
     }
@@ -198,7 +200,13 @@ export function CondoSelectorModal({
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={(e) => handleDeleteCondo(c, e)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!deletingId) {
+                                setDeleteError(null);
+                                setCondoToDelete(c);
+                              }
+                            }}
                             disabled={deletingId === c.id}
                             className="p-2 bg-white hover:bg-rose-50 border border-slate-200 text-rose-500 hover:text-rose-600 rounded-lg transition shadow-sm disabled:opacity-50 disabled:cursor-wait"
                             title="Eliminar Residencia (borra todos sus datos)"
@@ -311,6 +319,26 @@ export function CondoSelectorModal({
           )}
         </div>
       </div>
+
+      {/* Modal de doble confirmación de borrado (estilo AWS) */}
+      {condoToDelete && (
+        <ConfirmDeleteModal
+          title="Eliminar residencia"
+          resourceName={condoToDelete.name}
+          typePhrase={condoToDelete.name}
+          busy={deletingId === condoToDelete.id}
+          error={deleteError}
+          risks={[
+            'Se borrarán todos los períodos y recibos emitidos.',
+            'Se borrarán gastos, pagos y conciliaciones.',
+            'Se borrarán propietarios, unidades e inmuebles.',
+            'Se borrarán cuentas bancarias, amenities, avisos, consultas y accesos.',
+            'Esta acción no se puede deshacer ni recuperar.',
+          ]}
+          onConfirm={handleDeleteCondo}
+          onClose={() => setCondoToDelete(null)}
+        />
+      )}
     </div>
   );
 }
