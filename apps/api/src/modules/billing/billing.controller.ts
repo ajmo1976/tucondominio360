@@ -16,6 +16,12 @@ export class BillingController {
     return this.billingService.getPeriods(condoId);
   }
 
+  @Post('condos/:condoId/periods')
+  @ApiOperation({ summary: 'Aperturar nuevo período mensual de cobro para el condominio' })
+  async createBillingPeriod(@Param('condoId') condoId: string, @Body() data: any) {
+    return this.billingService.createBillingPeriod(condoId, data);
+  }
+
   @Get('condos/:condoId/bills')
   @ApiOperation({ summary: 'Listar recibos emitidos (con filtro por periodo o unidad)' })
   async getBills(

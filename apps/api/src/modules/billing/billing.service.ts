@@ -258,6 +258,21 @@ export class BillingService {
     return { success: true, deletedId: res.rows[0]?.id };
   }
   async createBillingPeriod(condoId: string, data: any) {
+    // Tasa BCV: prioridad a la enviada por el frontend (viva), sino resuelve
+    // la última vigente en exchange_rates, y solo como último recurso 1.0000.
+    let bcvRate = Number(data.bcvExchangeRate) || 0;
+    if (bcvRate <= 0) {
+      try {
+        const rates = await this.db.query(
+          `SELECT rate FROM exchange_rates
+           WHERE base_currency = 'USD' AND target_currency = 'VES' AND source = 'BCV'
+           ORDER BY rate_date DESC, created_at DESC LIMIT 1`,
+        );
+        if (rates.rows.length > 0) bcvRate = Number(rates.rows[0].rate) || 0;
+      } catch {
+        bcvRate = 0;
+      }
+    }
     const res = await this.db.query(
       `INSERT INTO billing_periods (
         condo_id, period_year, period_month, status, start_date, end_date,
@@ -272,7 +287,7 @@ export class BillingService {
         data.endDate,
         data.issueDate || data.startDate,
         data.dueDate || data.endDate,
-        data.bcvExchangeRate || 36.85,
+        bcvRate > 0 ? bcvRate : 1.0,
       ],
     );
     return res.rows[0];
