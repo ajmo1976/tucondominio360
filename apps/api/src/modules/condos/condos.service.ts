@@ -216,12 +216,16 @@ export class CondosService {
       [condoId],
     );
 
+    // Periodo activo: se prefiere el más reciente que YA tenga facturación
+    // (grand_total_usd > 0). Si el último periodo aperturado todavía está vacío
+    // (sin gastos/recibos), el dashboard muestra el último con datos reales en
+    // lugar de pintar ceros.
     const latestPeriod = await this.db.query(
       `SELECT id, period_year, period_month, status, bcv_exchange_rate, grand_total_usd, grand_total_ves,
               total_common_usd, total_ordinary_usd, total_extraordinary_usd, reserve_fund_usd
        FROM billing_periods
        WHERE condo_id = $1
-       ORDER BY period_year DESC, period_month DESC
+       ORDER BY (COALESCE(grand_total_usd, 0) > 0) DESC, period_year DESC, period_month DESC
        LIMIT 1`,
       [condoId],
     );
