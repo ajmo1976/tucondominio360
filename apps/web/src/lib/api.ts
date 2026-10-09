@@ -37,7 +37,21 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.statusText}`);
+    // El backend responde 400/404 con { message } (p. ej. al intentar borrar un
+    // período con pagos). Se propaga ese mensaje para que la UI muestre el
+    // motivo real y no un "API Error: Bad Request" genérico.
+    let message = `API Error: ${response.statusText}`;
+    try {
+      const data = await response.json();
+      if (data) {
+        if (Array.isArray(data.message)) message = data.message.join(', ');
+        else if (typeof data.message === 'string' && data.message) message = data.message;
+        else if (typeof data.error === 'string' && data.error) message = data.error;
+      }
+    } catch {
+      // Sin cuerpo JSON legible; se queda con el fallback.
+    }
+    throw new Error(message);
   }
 
   return response.json();

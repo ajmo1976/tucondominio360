@@ -15,6 +15,7 @@ import {
   Building,
   DollarSign,
   X,
+  Trash2,
 } from 'lucide-react';
 import { BillDetailModal } from './BillDetailModal';
 import { fetchWithAuth } from '../lib/api';
@@ -159,6 +160,40 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
     return months[m - 1] || `Mes ${m}`;
   };
 
+  // Eliminar un período mensual. Solo los períodos SIN gastos (y por tanto sin
+  // pagos) son borrables desde la UI; el backend lo valida igualmente.
+  const handleDeletePeriod = async (period: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const label = `${getMonthName(period.period_month)} ${period.period_year}`;
+    const hasExpenses =
+      Number(period.total_ordinary_usd || 0) + Number(period.total_extraordinary_usd || 0) > 0;
+
+    if (hasExpenses) {
+      setNotification({
+        message: 'No se puede eliminar: el período tiene gastos registrados. Elimina sus gastos primero.',
+        type: 'error',
+      });
+      return;
+    }
+    if (
+      !window.confirm(
+        `¿Eliminar el recibo mensual de ${label}?\n\nEl período está vacío (sin gastos) y se borrarán también sus plantillas de recibos individuales. Esta acción no se puede deshacer.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await fetchWithAuth(`/billing/periods/${period.id}`, { method: 'DELETE' });
+      setNotification({ message: `Período de ${label} eliminado.`, type: 'success' });
+      loadPeriods();
+    } catch (err: any) {
+      setNotification({
+        message: err.message || 'No se pudo eliminar el período',
+        type: 'error',
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* --------------------------------------------------------------------- */}
@@ -209,8 +244,15 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
             {periods.map((p) => {
               const monthName = getMonthName(p.period_month);
               const isClosed = p.status === 'CLOSED';
-              const grandTotal = Number(p.grand_total_usd || 0);
-              const grandTotalVes = Number(p.grand_total_ves || 0);
+              // Gran Total del recibo = cuota completa facturada (gastos
+              // ordinarios + extraordinarios + fondo de reserva): coherente con
+              // la suma de las columnas del detalle de inmuebles.
+              const gastosUsd = Number(p.grand_total_usd || 0);
+              const reserveUsd = Number(p.reserve_fund_usd || 0);
+              const grandTotal = gastosUsd + reserveUsd;
+              const bcv = Number(p.bcv_exchange_rate || 0);
+              const grandTotalVes = grandTotal > 0 && bcv > 0 ? grandTotal * bcv : 0;
+              const hasExpenses = gastosUsd > 0;
 
               return (
                 <div
@@ -236,15 +278,33 @@ export function BillsView({ bcvRate, condoId }: BillsViewProps) {
                           </h3>
                         </div>
                       </div>
-                      <span
-                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                          isClosed
-                            ? 'bg-slate-100 text-slate-600'
-                            : 'bg-emerald-100 text-emerald-800'
-                        }`}
-                      >
-                        {isClosed ? 'CERRADO' : 'ACTIVO / EMITIDO'}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span
+                          className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider ${
+                            isClosed
+                              ? 'bg-slate-100 text-slate-600'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {isClosed ? 'CERRADO' : 'ACTIVO / EMITIDO'}
+                        </span>
+                        <button
+                          onClick={(e) => handleDeletePeriod(p, e)}
+                          disabled={hasExpenses}
+                          title={
+                            hasExpenses
+                              ? 'No se puede eliminar: el período tiene gastos registrados'
+                              : 'Eliminar período vacío'
+                          }
+                          className={`p-1.5 rounded-lg transition ${
+                            hasExpenses
+                              ? 'text-slate-300 cursor-not-allowed'
+                              : 'text-rose-400 hover:text-rose-600 hover:bg-rose-50'
+                          }`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 py-3 border-y border-slate-100 text-xs text-slate-600">

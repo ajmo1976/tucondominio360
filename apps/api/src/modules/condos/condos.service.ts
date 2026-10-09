@@ -73,6 +73,70 @@ export class CondosService {
     return res.rows[0];
   }
 
+  /**
+   * Elimina definitivamente una residencia y TODOS sus datos asociados.
+   *
+   * No se usa borrado "a ciegas" por cascada: varias tablas hijas se referencian
+   * entre sí con RESTRICT (condo_bills -> property_units, payment_allocations ->
+   * condo_bills, expenses -> expense_categories), así que el orden explícito en
+   * una transacción es lo único determinista y seguro.
+   */
+  async deleteCondo(condoId: string) {
+    const client = await this.db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const exists = await client.query(`SELECT id FROM condos WHERE id = $1`, [condoId]);
+      if (exists.rows.length === 0) {
+        throw new NotFoundException('Condominio no encontrado');
+      }
+
+      // 1. Pagos y sus asignaciones (libera RESTRICT hacia recibos y unidades)
+      await client.query(
+        `DELETE FROM payment_allocations
+         WHERE payment_report_id IN (SELECT id FROM payment_reports WHERE condo_id = $1)`,
+        [condoId],
+      );
+      await client.query(`DELETE FROM payment_reports WHERE condo_id = $1`, [condoId]);
+
+      // 2. Recibos (arrastra bill_items en cascada)
+      await client.query(`DELETE FROM condo_bills WHERE condo_id = $1`, [condoId]);
+
+      // 3. Unidades (arrastra ocupantes, créditos, reservas de amenities,
+      //    paquetes, invitaciones a visitantes y votos de consultas)
+      await client.query(`DELETE FROM property_units WHERE condo_id = $1`, [condoId]);
+
+      // 4. Períodos (arrastra sus gastos) y gastos huérfanos
+      await client.query(`DELETE FROM billing_periods WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM expenses WHERE condo_id = $1`, [condoId]);
+
+      // 5. Estructura y operaciones del conjunto
+      await client.query(`DELETE FROM buildings WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM bank_accounts WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM amenities WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM announcements WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM consultations WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM maintenance_tickets WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM packages WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM condo_user_access WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM expense_categories WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM audit_logs WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM visitor_access_logs WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM visitor_invitations WHERE condo_id = $1`, [condoId]);
+
+      // 6. La residencia
+      const res = await client.query(`DELETE FROM condos WHERE id = $1 RETURNING id`, [condoId]);
+
+      await client.query('COMMIT');
+      return { success: true, deletedId: res.rows[0]?.id };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async findById(id: string) {
     const res = await this.db.query(
       `SELECT c.*, t.name as tenant_name

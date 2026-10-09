@@ -70,7 +70,14 @@ export function DashboardView({
 
   // Tasa BCV vigente; si no hay, el equivalente en Bs. no se inventa.
   const rateNum = bcvRateNum(bcvRate);
-  const grandTotalUsd = toNum(summary?.latestBillingPeriod?.grand_total_usd);
+
+  // Facturación = TOTAL FACTURADO en los recibos del período (gastos ordinarios
+  // + extraordinarios + fondo de reserva). La cuota que paga el propietario
+  // siempre incluye la reserva del mes, así el KPI cuadra con la morosidad
+  // (recibo emitido vs. pendiente de cobro) en lugar de parecer que faltan datos.
+  const billedBaseUsd = toNum(summary?.latestBillingPeriod?.grand_total_usd) || 0;
+  const reserveFundUsd = Number(summary?.latestBillingPeriod?.reserve_fund_usd || 0);
+  const grandTotalUsd = billedBaseUsd + reserveFundUsd;
   const grandTotalVes =
     rateNum !== null && grandTotalUsd !== null
       ? (grandTotalUsd * rateNum).toLocaleString('es-VE', {
@@ -83,7 +90,6 @@ export function DashboardView({
     summary?.latestBillingPeriod?.total_ordinary_usd ?? (summary?.latestBillingPeriod?.total_common_usd || 0),
   );
   const totalExtraordinaryUsd = Number(summary?.latestBillingPeriod?.total_extraordinary_usd || 0);
-  const reserveFundUsd = Number(summary?.latestBillingPeriod?.reserve_fund_usd || 0);
   const totalUnits = summary?.overview?.total_units || 0;
   // Suma de alícuotas: se muestra la real. Antes caía a '100.00000' fijo,
   // que ocultaba un reparto de alícuotas que no cuadraba.
@@ -121,15 +127,15 @@ export function DashboardView({
             </div>
           </div>
           <div className="text-2xl font-bold text-slate-900">{usd(grandTotalUsd)}</div>
-          <div className="text-xs font-medium text-emerald-600 mt-1 flex items-center">
+          <div className="text-xs font-medium text-emerald-600 mt-1 flex flex-col">
             {grandTotalVes !== null ? (
-              <>
-                <span>≈ Bs. {grandTotalVes}</span>
-                <span className="text-slate-400 ml-1 text-[11px]">(Tasa BCV)</span>
-              </>
+              <span>
+                ≈ Bs. {grandTotalVes} <span className="text-slate-400 text-[11px]">(Tasa BCV)</span>
+              </span>
             ) : (
               <span className="text-slate-400 text-[11px]">Tasa BCV no disponible</span>
             )}
+            <span className="text-slate-400 text-[11px] mt-0.5">Recibos emitidos · incluye fondo de reserva</span>
           </div>
         </div>
 
@@ -188,7 +194,7 @@ export function DashboardView({
               <p className="text-xs text-slate-500">Distribución de gastos de {condo?.name || 'este conjunto'}</p>
             </div>
             <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-3 py-1 rounded-lg font-mono">
-              Total: {usd(grandTotalUsd)} USD
+              Total: {usd(billedBaseUsd)} USD
             </span>
           </div>
 

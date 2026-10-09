@@ -241,6 +241,22 @@ export default function Home() {
             loadCondos();
             if (selectedCondo?.id) loadCondoData(selectedCondo.id);
           }}
+          onCondoDeleted={(deleted) => {
+            loadCondos();
+            if (deleted?.id === selectedCondo?.id) {
+              // Se borró la residencia activa: volver al estado vacío y olvidar
+              // la selección para no intentar cargar datos de una casa que ya
+              // no existe.
+              setSelectedCondo(NO_CONDO);
+              setCondoSummary(null);
+              setUnits([]);
+              setPayments([]);
+              setCondoBankAccounts([]);
+              if (typeof window !== 'undefined') {
+                window.localStorage.removeItem('tc360.selectedCondoId');
+              }
+            }
+          }}
         />
       )}
 

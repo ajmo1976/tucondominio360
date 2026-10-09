@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, MapPin, Shield, Check, Plus, Edit } from 'lucide-react';
+import { X, Building2, MapPin, Shield, Check, Plus, Edit, Trash2 } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { toNum } from '../lib/format';
 
@@ -11,6 +11,7 @@ interface CondoSelectorModalProps {
   onSelectCondo: (condo: any) => void;
   onClose: () => void;
   onCondoUpdated: () => void;
+  onCondoDeleted: (condo: any) => void;
 }
 
 export function CondoSelectorModal({
@@ -19,10 +20,12 @@ export function CondoSelectorModal({
   onSelectCondo,
   onClose,
   onCondoUpdated,
+  onCondoDeleted,
 }: CondoSelectorModalProps) {
   const [showForm, setShowForm] = useState(false);
   const [editingCondo, setEditingCondo] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
 
   const [form, setForm] = useState({
@@ -87,6 +90,30 @@ export function CondoSelectorModal({
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Elimina la residencia y TODOS sus datos. El borrado es definitivo e
+  // irreversible: se confirma dos veces el alcance antes de llamar al backend.
+  const handleDeleteCondo = async (c: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (deletingId) return;
+    const confirmed = window.confirm(
+      `¿Eliminar "${c.name}" (${c.rif || 'sin RIF'}) de forma definitiva?\n\n` +
+        'Se borrarán TODOS sus datos: períodos, recibos, gastos, propietarios, unidades, pagos y cuentas bancarias.\n' +
+        'Esta acción NO se puede deshacer.',
+    );
+    if (!confirmed) return;
+    setDeletingId(c.id);
+    try {
+      await fetchWithAuth(`/condos/${c.id}`, { method: 'DELETE' });
+      setSuccessMsg(`Residencia "${c.name}" eliminada.`);
+      onCondoDeleted(c);
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err: any) {
+      window.alert(err.message || 'No se pudo eliminar la residencia');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -169,6 +196,14 @@ export function CondoSelectorModal({
                             title="Modificar Residencia"
                           >
                             <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteCondo(c, e)}
+                            disabled={deletingId === c.id}
+                            className="p-2 bg-white hover:bg-rose-50 border border-slate-200 text-rose-500 hover:text-rose-600 rounded-lg transition shadow-sm disabled:opacity-50 disabled:cursor-wait"
+                            title="Eliminar Residencia (borra todos sus datos)"
+                          >
+                            <Trash2 className={`w-4 h-4 ${deletingId === c.id ? 'animate-pulse' : ''}`} />
                           </button>
                         </div>
                       </div>

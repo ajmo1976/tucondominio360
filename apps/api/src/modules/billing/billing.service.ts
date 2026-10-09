@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 
 @Injectable()
@@ -252,9 +252,39 @@ export class BillingService {
 
   async deleteBillingPeriod(periodId: string) {
     const periodRes = await this.db.query(
-      `SELECT condo_id FROM billing_periods WHERE id = $1`,
+      `SELECT id, condo_id FROM billing_periods WHERE id = $1`,
       [periodId],
     );
+    if (periodRes.rows.length === 0) {
+      throw new NotFoundException('Período no encontrado');
+    }
+    const period = periodRes.rows[0];
+
+    // No se borra un período que tenga pagos: las asignaciones a recibos
+    // impiden borrar en cascada y, sobre todo, perderían trazabilidad contable.
+    const payRes = await this.db.query(
+      `SELECT COUNT(*)::int AS n FROM payment_allocations pa
+       JOIN condo_bills cb ON cb.id = pa.condo_bill_id
+       WHERE cb.billing_period_id = $1`,
+      [periodId],
+    );
+    if ((payRes.rows[0]?.n || 0) > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar: el período tiene pagos aplicados. Elimina los pagos asociados primero.',
+      );
+    }
+
+    // Un período con gastos tampoco se borra en silencio: sus gastos se
+    // perderían. Primero se eliminan (o reubican) los gastos del período.
+    const expRes = await this.db.query(
+      `SELECT COUNT(*)::int AS n FROM expenses WHERE billing_period_id = $1`,
+      [periodId],
+    );
+    if ((expRes.rows[0]?.n || 0) > 0) {
+      throw new BadRequestException(
+        'No se puede eliminar: el período tiene gastos registrados. Elimina sus gastos primero.',
+      );
+    }
 
     const res = await this.db.query(
       `DELETE FROM billing_periods WHERE id = $1 RETURNING id`,
@@ -264,8 +294,8 @@ export class BillingService {
     // El borrado del período arrastra sus recibos (ON DELETE CASCADE); se
     // re-sincronizan los saldos para que la deuda refleje solo los períodos
     // que siguen aperturados.
-    if (res.rows.length > 0 && periodRes.rows[0]) {
-      await this.syncUnitBalances(periodRes.rows[0].condo_id);
+    if (res.rows.length > 0 && period.condo_id) {
+      await this.syncUnitBalances(period.condo_id);
     }
 
     return { success: true, deletedId: res.rows[0]?.id };

@@ -28,6 +28,12 @@ export class CondosController {
     return this.condosService.updateCondo(id, body);
   }
 
+  @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar residencia/condominio y todos sus datos asociados' })
+  async deleteCondo(@Param('id') id: string) {
+    return this.condosService.deleteCondo(id);
+  }
+
   @Get(':id/summary')
   @ApiOperation({ summary: 'Resumen financiero y de deuda del condominio' })
   async getFinancialSummary(@Param('id') id: string) {
