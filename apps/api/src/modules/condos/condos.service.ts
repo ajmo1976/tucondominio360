@@ -26,6 +26,33 @@ export class CondosService {
     return res.rows;
   }
 
+  /**
+   * Lista de residencias de un usuario regular: solo aquellas donde tiene un
+   * acceso activo (condo_user_access) u ocupa alguna unidad. Un propietario no
+   * ve los condominios de otros.
+   */
+  async findForUser(userId: string, tenantId?: string) {
+    const tenantFilter = tenantId ? 'AND c.tenant_id = $2' : '';
+    const params = tenantId ? [userId, tenantId] : [userId];
+    const res = await this.db.query(
+      `SELECT c.id, c.tenant_id, c.name, c.rif, c.address, c.state, c.city,
+              c.main_currency, c.secondary_currency, c.reserve_fund_rate, c.is_active,
+              (SELECT COUNT(*) FROM property_units pu WHERE pu.condo_id = c.id AND pu.is_active = TRUE) as units_count
+       FROM condos c
+       WHERE c.is_active = TRUE ${tenantFilter}
+         AND (EXISTS (
+                SELECT 1 FROM condo_user_access cua
+                WHERE cua.condo_id = c.id AND cua.user_id = $1 AND cua.is_active = TRUE)
+              OR EXISTS (
+                SELECT 1 FROM unit_occupants uo
+                JOIN property_units pu ON pu.id = uo.property_unit_id
+                WHERE pu.condo_id = c.id AND uo.user_id = $1))
+       ORDER BY c.name ASC`,
+      params,
+    );
+    return res.rows;
+  }
+
   async createCondo(data: any) {
     const tenantId = data.tenantId || '22222222-2222-2222-2222-222222222201';
     const res = await this.db.query(

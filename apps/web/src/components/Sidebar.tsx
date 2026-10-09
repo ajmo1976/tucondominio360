@@ -20,8 +20,9 @@ interface SidebarProps {
 }
 
 export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps) {
-  // En modo propietario (portal de recibos) el menú se reduce a lo que el
-  // dueño necesita; la administración conserva todos los módulos.
+  // En modo propietario (portal de transparencia y recibos) el menú se reduce
+  // a lo que el dueño necesita: su Dashboard General (solo lectura) y sus
+  // propios recibos; la administración conserva todos los módulos.
   const menuItems = isSuperadmin
     ? [
         { id: 'dashboard', label: 'Dashboard General', icon: LayoutDashboard },
@@ -32,7 +33,10 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps)
         { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
         { id: 'users', label: 'Usuarios y Accesos', icon: Users },
       ]
-    : [{ id: 'my-bills', label: 'Mis Recibos', icon: Receipt }];
+    : [
+        { id: 'community', label: 'Dashboard General', icon: LayoutDashboard },
+        { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
+      ];
 
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between shrink-0 min-h-screen">

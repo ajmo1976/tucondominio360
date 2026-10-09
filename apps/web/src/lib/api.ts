@@ -138,3 +138,30 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
 
   return response.json();
 }
+
+/** Descarga un archivo autenticado (PDF) disparando la descarga del navegador. */
+export async function downloadWithAuth(endpoint: string, filename: string): Promise<void> {
+  const token = await getAuthToken();
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    let message = `No se pudo descargar el documento (${response.status})`;
+    try {
+      const data = await response.json();
+      if (typeof data?.message === 'string' && data.message) message = data.message;
+    } catch {
+      // Sin cuerpo legible.
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

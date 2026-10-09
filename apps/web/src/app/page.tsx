@@ -12,6 +12,7 @@ import { PaymentsView } from '../components/PaymentsView';
 import { UnitsView } from '../components/UnitsView';
 import { AccessView } from '../components/AccessView';
 import { MyBillsView } from '../components/MyBillsView';
+import { CommunityDashboard } from '../components/CommunityDashboard';
 import { UsersView } from '../components/UsersView';
 import { ProfileModal } from '../components/ProfileModal';
 import { CondoSelectorModal } from '../components/CondoSelectorModal';
@@ -141,9 +142,9 @@ export default function Home() {
           role: isSuper ? 'Super Administrador' : 'Propietario · Portal de Recibos',
           isSuperadmin: isSuper,
         });
-        // Un propietario entra directo a su portal de recibos: los módulos de
-        // administración no aplican a su sesión.
-        if (!isSuper) setCurrentTab('my-bills');
+        // Un propietario entra directo a su Dashboard General comunitario
+        // (solo lectura); los módulos de administración no aplican a su sesión.
+        if (!isSuper) setCurrentTab('community');
       }
     } catch (err) {
       console.error('Error loading condo data:', err);
@@ -225,6 +226,11 @@ export default function Home() {
               bankAccounts={condoBankAccounts}
               onRefreshCondoData={() => loadCondoData(selectedCondo.id)}
             />
+          )}
+
+          {/* Dashboard General del propietario (transparencia comunitaria) */}
+          {selectedCondo.id && currentTab === 'community' && (
+            <CommunityDashboard condo={selectedCondo} />
           )}
 
           {selectedCondo.id && currentTab === 'expenses' && (

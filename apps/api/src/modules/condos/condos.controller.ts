@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { CondosService } from './condos.service';
@@ -17,8 +17,12 @@ export class CondosController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar condominios (con filtro opcional por tenant)' })
-  async findAll(@Query('tenantId') tenantId?: string) {
+  @ApiOperation({ summary: 'Listar condominios (solo los del usuario si no es superadmin; filtro opcional por tenant)' })
+  async findAll(@Query('tenantId') tenantId?: string, @Request() req?: any) {
+    const user = req?.user;
+    if (user && !user.is_superadmin) {
+      return this.condosService.findForUser(user.id, tenantId);
+    }
     return this.condosService.findAll(tenantId);
   }
 
