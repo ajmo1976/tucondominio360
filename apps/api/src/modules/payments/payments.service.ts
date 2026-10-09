@@ -18,6 +18,7 @@ export class PaymentsService {
         `SELECT 1 FROM unit_occupants uo
          JOIN property_units pu ON pu.id = uo.property_unit_id
          WHERE uo.user_id = $1 AND pu.id = $2 AND pu.is_active = TRUE
+           AND (uo.valid_to IS NULL OR uo.valid_to >= CURRENT_DATE)
          LIMIT 1`,
         [userId, dto.propertyUnitId],
       );

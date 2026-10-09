@@ -39,7 +39,10 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
         setAccounts(accountList);
         setFormData((prev) => ({
           ...prev,
-          propertyUnitId: prev.propertyUnitId || unitList[0]?.id || '',
+          // Sin default silencioso de inmueble: el admin debe elegir
+          // conscientemente a qué unidad se aplica el pago (antes caía en
+          // unitList[0] y un pago podía atribuirse a la unidad equivocada).
+          propertyUnitId: prev.propertyUnitId || '',
           bankAccountId: prev.bankAccountId || accountList[0]?.id || '',
         }));
       } catch (err) {
@@ -266,6 +269,13 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed">
+                <strong>Verifica el inmueble.</strong> Este pago se aplicará a la
+                deuda pendiente más antigua del inmueble que selecciones. Un pago
+                registrado contra el inmueble equivocado descuenta la deuda de
+                otro propietario.
+              </div>
+
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Inmueble</label>
                 <select
@@ -283,6 +293,11 @@ export function PaymentsView({ payments, condoId, onRefresh, bcvRate }: Payments
                     </option>
                   ))}
                 </select>
+                {formData.propertyUnitId && (
+                  <span className="text-[10px] font-semibold text-emerald-700">
+                    El pago se aplicará a la deuda de: {units.find((u) => u.id === formData.propertyUnitId)?.unit_code}
+                  </span>
+                )}
                 {units.length === 0 && (
                   <span className="text-[10px] text-amber-600">
                     Esta residencia no tiene inmuebles registrados.
