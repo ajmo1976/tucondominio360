@@ -1,8 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Building2, Bell, ChevronDown, UserCog, Users } from 'lucide-react';
-import { DEV_USERS, getDevUserEmail } from '../lib/api';
+import { Bell, Building2, ChevronDown, LogOut, UserCog } from 'lucide-react';
 
 interface HeaderProps {
   bcvRate: string;
@@ -12,7 +11,7 @@ interface HeaderProps {
   userName: string;
   userEmail: string;
   isSuperadmin: boolean;
-  onUserChange: (email: string) => void;
+  onLogout: () => void;
   onOpenProfile: () => void;
   onOpenCondoSelector: () => void;
 }
@@ -35,12 +34,10 @@ export function Header({
   userName,
   userEmail,
   isSuperadmin,
-  onUserChange,
+  onLogout,
   onOpenProfile,
   onOpenCondoSelector,
 }: HeaderProps) {
-  const demoUser = getDevUserEmail();
-
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
       {/* Selector de Condominio Activo (Clickable para cambiar) */}
@@ -83,26 +80,20 @@ export function Header({
           </span>
         </div>
 
-        {/* Selector de usuario demo (modo propietario) */}
-        <div className="hidden lg:flex items-center space-x-2 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1" title="Modo demo: prueba el portal como propietario o vuelve a la administración">
-          <Users className="w-3.5 h-3.5 text-slate-400" />
-          <select
-            value={demoUser}
-            onChange={(e) => onUserChange(e.target.value)}
-            className="bg-transparent text-xs text-slate-700 font-semibold focus:outline-none cursor-pointer"
-          >
-            {DEV_USERS.map((u) => (
-              <option key={u.email} value={u.email}>
-                {u.label} · {u.roleLabel}
-              </option>
-            ))}
-          </select>
-        </div>
-
         {/* Notificaciones */}
         <button className="relative p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition hidden sm:block">
           <Bell className="w-5 h-5" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full"></span>
+        </button>
+
+        {/* Cerrar Sesión */}
+        <button
+          onClick={onLogout}
+          className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-semibold transition"
+          title="Cerrar sesión"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Cerrar sesión</span>
         </button>
 
         {/* Perfil del Usuario / Botón Editar Perfil */}

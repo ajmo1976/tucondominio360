@@ -1,55 +1,99 @@
 const API_BASE = 'http://localhost:3001/api';
 
+const TOKEN_KEY = 'tc360.sessionToken';
+const SESSION_KEY = 'tc360.session';
+
 let cachedToken: string | null = null;
 
-// Usuarios de demostración del "modo propietario": la misma app puede iniciar
-// sesión como la administración o como un propietario registrado para probar
-// el portal de recibos sin construir todavía el login real de dueños (Fase 3).
-// Los emails usan el casing guardado en la BD para que el selector coincida
-// con lo que devuelve /auth/me.
-export const DEV_USERS = [
-  { email: 'superadmin@tucondominio360.com', label: 'Super Admin', roleLabel: 'Administración' },
-  { email: 'Leticia.Sucre@gmail.com', label: 'Leticia Sucre', roleLabel: 'Propietaria' },
-  { email: 'jferrer@gmail.com', label: 'Jesús Ferrer', roleLabel: 'Propietario' },
-  { email: 'arnaldo.martinez@gmail.com', label: 'Arnaldo Martínez', roleLabel: 'Propietario' },
-] as const;
-
-const DEV_USER_KEY = 'tc360.devUserEmail';
-
-/** Email de la persona elegida para la sesión demo (por defecto, la administración). */
-export function getDevUserEmail(): string {
-  if (typeof window === 'undefined') return DEV_USERS[0].email;
-  const saved = window.localStorage.getItem(DEV_USER_KEY);
-  return DEV_USERS.some((u) => u.email === saved) ? (saved as string) : DEV_USERS[0].email;
+export interface SessionCondo {
+  condo_id: string;
+  condo_name: string;
+  role: string;
 }
 
-/** Cambia la persona de la sesión demo (la página se recarga desde el llamador). */
-export function setDevUserEmail(email: string): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(DEV_USER_KEY, email);
-  // El token se emite por usuario; al cambiar de persona hay que invalidarlo.
+export interface SessionUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  docType: string;
+  docNumber: string;
+  phone: string;
+  isSuperadmin: boolean;
+}
+
+export interface Session {
+  accessToken: string;
+  user: SessionUser;
+  condos: SessionCondo[];
+}
+
+/** Sesión persistente del usuario que inició sesión (o null si no hay). */
+export function getSession(): Session | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as Session) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getStoredToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+
+/** Inicia sesión real con email/contraseña y guarda la sesión persistente. */
+export async function login(email: string, password: string): Promise<Session> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!res.ok) {
+    // Se propaga el mensaje real del backend: "Credenciales inválidas",
+    // "El usuario se encuentra desactivado", etc.
+    let message = 'No se pudo iniciar sesión. Verifica tus datos.';
+    try {
+      const data = await res.json();
+      if (Array.isArray(data.message)) message = data.message.join(', ');
+      else if (typeof data.message === 'string' && data.message) message = data.message;
+      else if (typeof data.error === 'string' && data.error) message = data.error;
+    } catch {
+      // Sin cuerpo JSON legible.
+    }
+    throw new Error(message);
+  }
+
+  const data = (await res.json()) as Session;
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(TOKEN_KEY, data.accessToken);
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+  }
+  cachedToken = data.accessToken;
+  return data;
+}
+
+/** Cierra la sesión local (el token desaparece y deja de ser válido). */
+export function logout(): void {
   cachedToken = null;
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(SESSION_KEY);
+  // Limpieza de claves del antiguo "modo propietario demo".
+  window.localStorage.removeItem('tc360.devUserEmail');
 }
 
+/**
+ * Token JWT de la sesión actual. A diferencia del modo demo anterior, aquí NO
+ * se hace login automático: si no hay sesión la app redirige a /login.
+ */
 export async function getAuthToken(): Promise<string> {
   if (cachedToken) return cachedToken;
-  try {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: getDevUserEmail(),
-        password: 'secret123',
-      }),
-    });
-    if (!res.ok) throw new Error('Login failed');
-    const data = await res.json();
-    cachedToken = data.accessToken;
-    return data.accessToken;
-  } catch (err) {
-    console.error('Error fetching auth token:', err);
-    return '';
-  }
+  cachedToken = getStoredToken();
+  return cachedToken || '';
 }
 
 export async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
@@ -65,11 +109,19 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
     headers,
   });
 
+  if (response.status === 401 && token) {
+    // Token vencido o invalidado: se limpia la sesión y se devuelve al login.
+    logout();
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login';
+    }
+    throw new Error('La sesión expiró. Inicia sesión de nuevo.');
+  }
+
   if (!response.ok) {
-    // El backend responde 400/404 con { message } (p. ej. al intentar borrar un
-    // período con pagos, o al reportar un pago de un inmueble ajeno). Se
-    // propaga ese mensaje para que la UI muestre el motivo real y no un
-    // "API Error: Bad Request" genérico.
+    // El backend responde 400/404/409/403 con { message }. Se propaga el
+    // motivo real para que la UI lo muestre (p. ej. al eliminar un usuario con
+    // historial, o al reportar un pago de un inmueble ajeno).
     let message = `API Error: ${response.statusText}`;
     try {
       const data = await response.json();

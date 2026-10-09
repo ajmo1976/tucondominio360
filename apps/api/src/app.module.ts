@@ -7,6 +7,7 @@ import { CondosModule } from './modules/condos/condos.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { BcvModule } from './modules/bcv/bcv.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { BcvModule } from './modules/bcv/bcv.module';
     BillingModule,
     PaymentsModule,
     BcvModule,
+    UsersModule,
   ],
   controllers: [AppController],
 })

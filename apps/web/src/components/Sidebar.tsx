@@ -10,6 +10,7 @@ import {
   DollarSign,
   Shield,
   FileSpreadsheet,
+  Users,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -29,6 +30,7 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps)
         { id: 'payments', label: 'Conciliación de Pagos', icon: ArrowLeftRight },
         { id: 'units', label: 'Propietarios y Alícuotas', icon: Home },
         { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
+        { id: 'users', label: 'Usuarios y Accesos', icon: Users },
       ]
     : [{ id: 'my-bills', label: 'Mis Recibos', icon: Receipt }];
 

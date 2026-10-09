@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @ApiTags('Autenticación')
 @Controller('auth')
@@ -31,5 +32,13 @@ export class AuthController {
   @ApiOperation({ summary: 'Editar datos del usuario autenticado' })
   async updateProfile(@Request() req: any, @Body() body: any) {
     return this.authService.updateProfile(req.user.id, body);
+  }
+
+  @Post('profile/password')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cambiar la contraseña del usuario autenticado' })
+  async changePassword(@Request() req: any, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(req.user.id, dto.currentPassword, dto.newPassword);
   }
 }

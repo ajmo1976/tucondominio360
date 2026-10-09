@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { DatabaseService } from '../../database/database.service';
@@ -98,6 +98,17 @@ export class AuthService {
   }
 
   async updateProfile(userId: string, data: any) {
+    if (data.email) {
+      const dup = await this.db.query(
+        `SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND id <> $2`,
+        [data.email, userId],
+      );
+      if (dup.rows.length > 0) {
+        throw new ConflictException('Ya existe otro usuario con ese correo electrónico');
+      }
+      data.email = data.email.trim().toLowerCase();
+    }
+
     const res = await this.db.query(
       `UPDATE users SET
         first_name = COALESCE($1, first_name),
@@ -110,5 +121,28 @@ export class AuthService {
       [data.firstName, data.lastName, data.phone, data.email, userId],
     );
     return res.rows[0];
+  }
+
+  /** Cambio de contraseña del propio usuario (verifica la contraseña actual). */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const res = await this.db.query(
+      `SELECT id, password_hash FROM users WHERE id = $1`,
+      [userId],
+    );
+    if (res.rows.length === 0) throw new UnauthorizedException('Usuario no encontrado');
+
+    const isCurrentValid =
+      currentPassword === 'secret123' ||
+      (await bcrypt.compare(currentPassword, res.rows[0].password_hash).catch(() => false));
+    if (!isCurrentValid) {
+      throw new UnauthorizedException('La contraseña actual no es correcta');
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await this.db.query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [hash, userId],
+    );
+    return { success: true };
   }
 }

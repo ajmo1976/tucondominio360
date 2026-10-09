@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Building2 } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
@@ -11,17 +12,16 @@ import { PaymentsView } from '../components/PaymentsView';
 import { UnitsView } from '../components/UnitsView';
 import { AccessView } from '../components/AccessView';
 import { MyBillsView } from '../components/MyBillsView';
+import { UsersView } from '../components/UsersView';
 import { ProfileModal } from '../components/ProfileModal';
 import { CondoSelectorModal } from '../components/CondoSelectorModal';
 import { BankAccountsModal } from '../components/BankAccountsModal';
-import { fetchWithAuth, setDevUserEmail } from '../lib/api';
+import { fetchWithAuth, getSession, logout } from '../lib/api';
 
 /**
  * Estado inicial sin residencia cargada. Antes se arrancaba con una residencia
- * inventada (El Ávila, con su RIF y dirección) para que la interfaz no se
- * viera vacía, lo que hacía que esa residencia fantasma apareciera en toda
- * pantalla si la carga del catálogo fallaba o tardaba. Ahora la pantalla
- * arranca sin residencia y muestra "—" hasta que el backend responde.
+ * inventada (El Ávila, con su RIF y dirección). Ahora la pantalla arranca sin
+ * residencia y muestra "—" hasta que el backend responde.
  */
 const NO_CONDO = {
   id: '',
@@ -35,6 +35,8 @@ const NO_CONDO = {
 };
 
 export default function Home() {
+  const router = useRouter();
+  const [authReady, setAuthReady] = useState(false);
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [bcvRate, setBcvRate] = useState<string>('');
   const [condos, setCondos] = useState<any[]>([]);
@@ -49,23 +51,32 @@ export default function Home() {
   const [showCondoSelectorModal, setShowCondoSelectorModal] = useState(false);
 
   const [userProfile, setUserProfile] = useState({
-    firstName: 'Arnaldo',
-    lastName: 'Martínez',
-    email: 'superadmin@tucondominio360.com',
-    phone: '+584120000000',
-    docNumber: '18456123',
-    role: 'Super Administrador',
-    isSuperadmin: true,
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    docNumber: '',
+    role: '',
+    isSuperadmin: false,
   });
 
-  // Cambio de usuario demo (modo propietario): se guarda el email elegido y se
-  // recarga la app para emitir un token nuevo y refrescar todo el estado.
-  const handleUserChange = (email: string) => {
-    setDevUserEmail(email);
-    window.location.reload();
+  // Guard de sesión: sin login real la app no pinta el dashboard.
+  useEffect(() => {
+    const session = getSession();
+    if (!session) {
+      router.replace('/login');
+      return;
+    }
+    setAuthReady(true);
+  }, [router]);
+
+  // Cerrar sesión: limpia el token local y devuelve al login.
+  const handleLogout = () => {
+    logout();
+    router.replace('/login');
   };
 
-  // 1. Cargar lista de condominios al iniciar
+  // 1. Cargar lista de condominios al iniciar (una vez autenticado)
   const loadCondos = async () => {
     try {
       const res = await fetchWithAuth('/condos').catch(() => []);
@@ -113,22 +124,20 @@ export default function Home() {
       const unitsRes = await fetchWithAuth(`/condos/${condoId}/units`).catch(() => []);
       if (Array.isArray(unitsRes)) setUnits(unitsRes);
 
-      // Pagos reportados por residentes (Conciliación). Sin esta carga la
-      // pantalla de Conciliación siempre decía "no hay reportes" aunque el
-      // backend tuviera pagos pendientes.
+      // Pagos reportados por residentes (Conciliación).
       const paysRes = await fetchWithAuth(`/payments/condos/${condoId}`).catch(() => []);
       if (Array.isArray(paysRes)) setPayments(paysRes);
 
-      // Perfil de usuario
+      // Perfil real del usuario autenticado
       const meRes = await fetchWithAuth('/auth/me').catch(() => null);
       if (meRes?.user) {
         const isSuper = Boolean(meRes.user.is_superadmin);
         setUserProfile({
-          firstName: meRes.user.first_name,
-          lastName: meRes.user.last_name,
-          email: meRes.user.email,
-          phone: meRes.user.phone,
-          docNumber: meRes.user.doc_number,
+          firstName: meRes.user.first_name || '',
+          lastName: meRes.user.last_name || '',
+          email: meRes.user.email || '',
+          phone: meRes.user.phone || '',
+          docNumber: meRes.user.doc_number || '',
           role: isSuper ? 'Super Administrador' : 'Propietario · Portal de Recibos',
           isSuperadmin: isSuper,
         });
@@ -142,14 +151,28 @@ export default function Home() {
   };
 
   useEffect(() => {
-    loadCondos();
-  }, []);
+    if (authReady) loadCondos();
+  }, [authReady]);
 
   useEffect(() => {
     if (selectedCondo?.id) {
       loadCondoData(selectedCondo.id);
     }
   }, [selectedCondo?.id]);
+
+  // Sin sesión aún: pantalla de carga para no pintar la app a quien no entró.
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black text-2xl mx-auto mb-4">
+            360
+          </div>
+          <p className="text-sm text-slate-500 font-medium">Cargando TuCondominio360…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
@@ -167,20 +190,17 @@ export default function Home() {
           condoName={selectedCondo?.name || '—'}
           condoRif={selectedCondo?.rif || '—'}
           condoLocation={[selectedCondo?.city, selectedCondo?.state].filter(Boolean).join(', ') || '—'}
-          userName={`${userProfile.firstName} ${userProfile.lastName}`}
+          userName={`${userProfile.firstName} ${userProfile.lastName}`.trim() || userProfile.email}
           userEmail={userProfile.email}
           isSuperadmin={userProfile.isSuperadmin}
-          onUserChange={handleUserChange}
+          onLogout={handleLogout}
           onOpenProfile={() => setShowProfileModal(true)}
           onOpenCondoSelector={() => setShowCondoSelectorModal(true)}
         />
 
         <main className="flex-1 p-6 md:p-8 max-w-7xl mx-auto w-full">
-          {/* Sin residencia cargada no se pinta ninguna vista de datos: antes se
-              mostraba la del resumen de una residencia fija. El portal de
-              recibos del propietario es multi-residencia, así que tampoco
-              aplica aquí. */}
-          {!selectedCondo.id && currentTab !== 'access' && currentTab !== 'my-bills' && (
+          {/* Sin residencia cargada no se pinta ninguna vista de datos. */}
+          {!selectedCondo.id && currentTab !== 'access' && currentTab !== 'my-bills' && currentTab !== 'users' && (
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-10 text-center">
               <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
               <h2 className="font-bold text-slate-800">No hay una residencia seleccionada</h2>
@@ -246,6 +266,11 @@ export default function Home() {
           {/* Portal del Propietario: recibos en todas sus residencias */}
           {currentTab === 'my-bills' && (
             <MyBillsView bcvRate={bcvRate} />
+          )}
+
+          {/* Módulo de Usuarios y Accesos (solo administración) */}
+          {currentTab === 'users' && (
+            <UsersView />
           )}
         </main>
       </div>
