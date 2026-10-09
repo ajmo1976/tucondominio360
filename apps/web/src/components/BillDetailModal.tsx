@@ -398,15 +398,17 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
             </button>
             <button
               onClick={handlePrint}
-              className="p-1.5 hover:bg-slate-800 active:scale-95 rounded-lg text-slate-300 hover:text-white transition"
+              className="p-1.5 hover:bg-slate-800 active:scale-95 rounded-lg text-slate-300 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
               title="Imprimir Recibo"
+              aria-label="Imprimir recibo"
             >
               <Printer className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 hover:bg-slate-800 active:scale-95 rounded-lg text-slate-300 hover:text-white transition"
+              className="p-1.5 hover:bg-slate-800 active:scale-95 rounded-lg text-slate-300 hover:text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
               title="Cerrar Recibo"
+              aria-label="Cerrar recibo"
             >
               <X className="w-5 h-5" />
             </button>
@@ -422,7 +424,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           )}
 
           {/* Identificación Condominio e Inmueble (Equilibrada en 2 Columnas) */}
-          <div className="grid grid-cols-2 gap-3 pb-3 border-b border-slate-200">
+          <div className="grid grid-cols-2 gap-3 pb-3 border-b border-slate-200 items-start">
             <div>
               <p className="text-[9.5px] text-slate-400 font-bold uppercase tracking-wider">
                 Condominio Administrado
@@ -506,7 +508,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE I: TRABAJADOR RESIDENCIAL */}
-          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs">
+          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs print:shadow-none print:rounded-md">
             <div className="bg-slate-100/90 px-3 py-1 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
               <span className="flex items-center gap-1.5 uppercase text-[10px]">
                 <Users className="w-3.5 h-3.5 text-blue-600" />
@@ -520,7 +522,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE II: SERVICIOS FIJOS */}
-          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs">
+          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs print:shadow-none print:rounded-md">
             <div className="bg-slate-100/90 px-3 py-1 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
               <span className="flex items-center gap-1.5 uppercase text-[10px]">
                 <Zap className="w-3.5 h-3.5 text-emerald-600" />
@@ -534,7 +536,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE III: ADICIONALES, IMPREVISTOS Y CUOTAS EXTRAS */}
-          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs">
+          <div className="bg-white rounded-lg border border-slate-200/90 overflow-hidden shadow-xs print:shadow-none print:rounded-md">
             <div className="bg-slate-100/90 px-3 py-1 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
               <span className="flex items-center gap-1.5 uppercase text-[10px]">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
@@ -548,7 +550,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
           </div>
 
           {/* BLOQUE DE TOTALES Y LIQUIDACIÓN AL PIE (Sin artefactos de canvas) */}
-          <div className="bg-slate-900 text-white rounded-xl p-3.5 space-y-2 shadow-sm print:bg-slate-900 print:text-white print:rounded-lg">
+          <div className="bg-slate-900 text-white rounded-xl p-3.5 space-y-2 shadow-sm print:bg-slate-900 print:text-white print:rounded-none print:shadow-none">
             <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
               <div>
                 <span className="text-slate-400 uppercase text-[9px] font-bold tracking-normal">Total Gastos (I + II + III)</span>
