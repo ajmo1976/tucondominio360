@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { X, Building2, MapPin, Shield, Check, Plus, Edit, Trash2 } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { toNum } from '../lib/format';
+import { suggestCondoCode, sanitizeCondoCode } from '../lib/condo-code';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 
 interface CondoSelectorModalProps {
@@ -32,9 +33,13 @@ export function CondoSelectorModal({
   // teclear el nombre exacto de la residencia para habilitar el botón.
   const [condoToDelete, setCondoToDelete] = useState<any | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Marca si el usuario editó el código corto a mano; si no, se mantiene la
+  // sugerencia automática derivada del nombre del conjunto.
+  const [codeTouched, setCodeTouched] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
+    code: '',
     rif: '',
     address: '',
     city: 'Caracas',
@@ -44,8 +49,10 @@ export function CondoSelectorModal({
 
   const handleOpenCreate = () => {
     setEditingCondo(null);
+    setCodeTouched(false);
     setForm({
       name: '',
+      code: '',
       rif: '',
       address: '',
       city: 'Caracas',
@@ -57,8 +64,12 @@ export function CondoSelectorModal({
 
   const handleOpenEdit = (c: any) => {
     setEditingCondo(c);
+    // Si la residencia aún no tiene código, se deja la sugerencia lista para
+    // guardar; si ya lo tiene, se muestra tal cual y se respeta.
+    setCodeTouched(!!c.code);
     setForm({
       name: c.name || '',
+      code: c.code || suggestCondoCode(c.name || ''),
       rif: c.rif || '',
       address: c.address || '',
       city: c.city || 'Caracas',
@@ -68,6 +79,16 @@ export function CondoSelectorModal({
       reserveFundRate: toNum(c.reserve_fund_rate) ?? 10,
     });
     setShowForm(true);
+  };
+
+  // Al escribir el nombre se sugiere la abreviatura; se detiene cuando el
+  // usuario toca el campo de código para no pisar su elección.
+  const handleNameChange = (value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      name: value,
+      code: codeTouched ? prev.code : suggestCondoCode(value),
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -118,6 +139,12 @@ export function CondoSelectorModal({
       setDeletingId(null);
     }
   };
+
+  // Vista previa del número de recibo para dar contexto al código corto.
+  const now = new Date();
+  const previewYear = now.getFullYear();
+  const previewMonth = String(now.getMonth() + 1).padStart(2, '0');
+  const previewCode = form.code || suggestCondoCode(form.name) || 'CODIGO';
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -176,6 +203,14 @@ export function CondoSelectorModal({
                         >
                           <div className="flex items-center space-x-2">
                             <span className="font-bold text-slate-900 text-sm">{c.name}</span>
+                            {c.code && (
+                              <span
+                                className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200"
+                                title="Código que identifica a esta residencia en los recibos"
+                              >
+                                {c.code}
+                              </span>
+                            )}
                             {isSelected && (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900">
                                 Activo
@@ -235,9 +270,33 @@ export function CondoSelectorModal({
                   required
                   placeholder="Ej: Residencias Monte Mayor"
                   value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  onChange={(e) => handleNameChange(e.target.value)}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 font-bold"
                 />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Código corto para los recibos
+                </label>
+                <input
+                  type="text"
+                  maxLength={12}
+                  placeholder="Ej: MIRA"
+                  value={form.code}
+                  onChange={(e) => {
+                    setCodeTouched(true);
+                    setForm({ ...form, code: sanitizeCondoCode(e.target.value) });
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 font-mono uppercase tracking-wider"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Abreviatura del conjunto para numerar los recibos, así distingues los de cada residencia.
+                  Vista previa:{' '}
+                  <span className="font-mono font-semibold text-slate-700">
+                    REC-{previewCode}-{previewYear}-{previewMonth}-31
+                  </span>
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

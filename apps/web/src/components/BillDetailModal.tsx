@@ -300,9 +300,10 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
       }
 
       const unitCode = String(data.unit_code || 'Unidad').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const condoCode = String(condo?.code || data.condo_code || 'Conj').replace(/[^a-zA-Z0-9_-]/g, '_').toUpperCase();
       const cleanMonth = String(MONTH_NAMES[periodMonth] || 'Mes').toLowerCase();
       const cleanYear = String(data.period_year || '2026');
-      const filename = `Recibo_Apto_${unitCode}_${cleanMonth}_${cleanYear}.pdf`;
+      const filename = `Recibo_${condoCode}_Apto_${unitCode}_${cleanMonth}_${cleanYear}.pdf`;
 
       const blob = pdf.output('blob');
       const blobUrl = URL.createObjectURL(blob);

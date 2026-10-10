@@ -1,14 +1,34 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { resolveCondoCode } from '../../common/condo-code';
 
 @Injectable()
 export class CondosService {
   constructor(private readonly db: DatabaseService) {}
 
+  /**
+   * Código corto único dentro del tenant para numerar recibos. Si el deseado
+   * ya está tomado por otra residencia, se añade un sufijo numérico.
+   */
+  private async resolveUniqueCondoCode(tenantId: string, desired: string, excludeId?: string): Promise<string> {
+    const base = desired.slice(0, 10);
+    let candidate = desired;
+    let suffix = 1;
+    for (;;) {
+      const res = await this.db.query(
+        `SELECT 1 FROM condos WHERE tenant_id = $1 AND code = $2 ${excludeId ? 'AND id <> $3' : ''} LIMIT 1`,
+        excludeId ? [tenantId, candidate, excludeId] : [tenantId, candidate],
+      );
+      if (res.rows.length === 0) return candidate;
+      suffix += 1;
+      candidate = `${base}${suffix}`;
+    }
+  }
+
   async findAll(tenantId?: string) {
     if (tenantId) {
       const res = await this.db.query(
-        `SELECT id, tenant_id, name, rif, address, state, city, main_currency, secondary_currency, reserve_fund_rate, is_active,
+        `SELECT id, tenant_id, name, code, rif, address, state, city, main_currency, secondary_currency, reserve_fund_rate, is_active,
                 (SELECT COUNT(*) FROM property_units pu WHERE pu.condo_id = condos.id AND pu.is_active = TRUE) as units_count
          FROM condos WHERE tenant_id = $1 AND is_active = TRUE ORDER BY name ASC`,
         [tenantId],
@@ -16,7 +36,7 @@ export class CondosService {
       return res.rows;
     }
     const res = await this.db.query(
-      `SELECT c.id, c.tenant_id, t.name as tenant_name, c.name, c.rif, c.address, c.state, c.city,
+      `SELECT c.id, c.tenant_id, t.name as tenant_name, c.name, c.code, c.rif, c.address, c.state, c.city,
               c.main_currency, c.secondary_currency, c.reserve_fund_rate, c.is_active,
               (SELECT COUNT(*) FROM property_units pu WHERE pu.condo_id = c.id AND pu.is_active = TRUE) as units_count
        FROM condos c
@@ -35,7 +55,7 @@ export class CondosService {
     const tenantFilter = tenantId ? 'AND c.tenant_id = $2' : '';
     const params = tenantId ? [userId, tenantId] : [userId];
     const res = await this.db.query(
-      `SELECT c.id, c.tenant_id, c.name, c.rif, c.address, c.state, c.city,
+      `SELECT c.id, c.tenant_id, c.name, c.code, c.rif, c.address, c.state, c.city,
               c.main_currency, c.secondary_currency, c.reserve_fund_rate, c.is_active,
               (SELECT COUNT(*) FROM property_units pu WHERE pu.condo_id = c.id AND pu.is_active = TRUE) as units_count
        FROM condos c
@@ -55,14 +75,21 @@ export class CondosService {
 
   async createCondo(data: any) {
     const tenantId = data.tenantId || '22222222-2222-2222-2222-222222222201';
+    // Código corto para numerar los recibos (REC-CODIGO-AAAA-MM-APTO), único
+    // dentro del tenant: el explícito si es válido, si no la abreviatura del nombre.
+    const condoCode = await this.resolveUniqueCondoCode(
+      tenantId,
+      resolveCondoCode(data.name || '', data.code),
+    );
     const res = await this.db.query(
       `INSERT INTO condos (
-        tenant_id, name, rif, address, state, city, main_currency, secondary_currency, reserve_fund_rate
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        tenant_id, name, code, rif, address, state, city, main_currency, secondary_currency, reserve_fund_rate
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *`,
       [
         tenantId,
         data.name,
+        condoCode,
         data.rif,
         data.address,
         data.state || 'Miranda',
@@ -76,6 +103,23 @@ export class CondosService {
   }
 
   async updateCondo(condoId: string, data: any) {
+    const currentRes = await this.db.query(
+      `SELECT tenant_id, name, code FROM condos WHERE id = $1`,
+      [condoId],
+    );
+    if (currentRes.rows.length === 0) throw new NotFoundException('Residencia no encontrada');
+    const current = currentRes.rows[0];
+
+    // El código de recibos solo cambia si la petición lo trae explícitamente;
+    // si no se conserva el actual (derivándolo del nombre si aún no existía).
+    let code: string | null = current.code;
+    if (data.code !== undefined) {
+      code = resolveCondoCode(data.name ?? current.name, data.code);
+    } else if (!code && data.name !== undefined) {
+      code = resolveCondoCode(data.name, null);
+    }
+    if (code) code = await this.resolveUniqueCondoCode(current.tenant_id, code, condoId);
+
     const res = await this.db.query(
       `UPDATE condos SET
         name = COALESCE($1, name),
@@ -84,8 +128,9 @@ export class CondosService {
         city = COALESCE($4, city),
         state = COALESCE($5, state),
         reserve_fund_rate = COALESCE($6, reserve_fund_rate),
+        code = COALESCE($7, code),
         updated_at = NOW()
-       WHERE id = $7
+       WHERE id = $8
        RETURNING *`,
       [
         data.name,
@@ -94,6 +139,7 @@ export class CondosService {
         data.city,
         data.state,
         data.reserveFundRate,
+        code,
         condoId,
       ],
     );

@@ -6,6 +6,7 @@ import { fetchWithAuth } from './api';
 export interface CondoRecord {
   id: string;
   name: string;
+  code?: string | null;
   rif: string;
   city: string;
   state: string;
@@ -50,6 +51,7 @@ export function useCondoRecord(condoId?: string | null): CondoRecord | null {
         setCondo({
           id: found.id,
           name: found.name ?? '',
+          code: found.code || null,
           rif: found.rif ?? '',
           city: found.city ?? '',
           state: found.state ?? '',

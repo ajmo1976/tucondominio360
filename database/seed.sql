@@ -99,12 +99,13 @@ VALUES
   ('22222222-2222-2222-2222-222222222202', '33333333-3333-3333-3333-333333333303', TRUE);
 
 -- 4. Condominio de Prueba
-INSERT INTO condos (id, tenant_id, name, rif, address, state, city, main_currency, secondary_currency, reserve_fund_rate)
+INSERT INTO condos (id, tenant_id, name, code, rif, address, state, city, main_currency, secondary_currency, reserve_fund_rate)
 VALUES 
   (
     '44444444-4444-4444-4444-444444444401',
     '22222222-2222-2222-2222-222222222201',
     'Residencias Parque El Ávila',
+    'PARAVI',
     'J-50123456-7',
     'Av. Principal de Los Palos Grandes, 3ra Transversal',
     'Miranda',

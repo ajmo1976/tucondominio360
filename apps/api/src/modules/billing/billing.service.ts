@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { resolveCondoCode, buildBillNumber } from '../../common/condo-code';
 
 @Injectable()
 export class BillingService {
@@ -374,7 +375,8 @@ export class BillingService {
 
   async calculateAndGenerateBills(periodId: string) {
     const periodRes = await this.db.query(
-      `SELECT bp.*, c.reserve_fund_rate FROM billing_periods bp JOIN condos c ON c.id = bp.condo_id WHERE bp.id = $1`,
+      `SELECT bp.*, c.reserve_fund_rate, c.name AS condo_name, c.code AS condo_code
+       FROM billing_periods bp JOIN condos c ON c.id = bp.condo_id WHERE bp.id = $1`,
       [periodId],
     );
     if (periodRes.rows.length === 0) throw new NotFoundException('Periodo no encontrado');
@@ -532,7 +534,12 @@ export class BillingService {
       const creditAppliedUsd = Number(unit.current_balance_usd < 0 ? Math.abs(unit.current_balance_usd) : 0);
       const totalDueUsd = ordinaryShareUsd + extraordinaryShareUsd + unitReserveFundUsd + previousDebtUsd - creditAppliedUsd;
       const totalDueVes = Number((totalDueUsd * bcvRate).toFixed(2));
-      const billNumber = `REC-${period.period_year}-${String(period.period_month).padStart(2, '0')}-${unit.unit_code}`;
+      // Número de recibo con referencia al conjunto: REC-{CÓDIGO}-{AÑO}-{MES}-{APTO}
+      // (Ej: REC-MIRA-2026-09-31). El código corto distingue recibos cuando una
+      // administradora administra varios conjuntos; si la residencia aún no lo
+      // tiene se deriva del nombre.
+      const condoCode = resolveCondoCode(period.condo_name || '', period.condo_code);
+      const billNumber = buildBillNumber(condoCode, period.period_year, period.period_month, unit.unit_code);
 
       await this.db.query(
         `INSERT INTO condo_bills (

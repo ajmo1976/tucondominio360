@@ -194,6 +194,7 @@ CREATE TABLE condos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
     name VARCHAR(150) NOT NULL,
+    code VARCHAR(12), -- Abreviatura para numerar recibos (Ej: "MIRA", "JUNI")
     rif VARCHAR(20) NOT NULL,
     address TEXT NOT NULL,
     state VARCHAR(60) NOT NULL,
@@ -208,7 +209,8 @@ CREATE TABLE condos (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_condo_tenant_rif UNIQUE (tenant_id, rif)
+    CONSTRAINT uq_condo_tenant_rif UNIQUE (tenant_id, rif),
+    CONSTRAINT uq_condo_tenant_code UNIQUE (tenant_id, code)
 );
 
 CREATE TABLE condo_user_access (
