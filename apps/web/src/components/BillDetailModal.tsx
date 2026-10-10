@@ -17,6 +17,18 @@ const MONTH_NAMES = [
 
 const ves = (n: number) => `Bs. ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  PAGO_MOVIL: 'Pago Móvil',
+  TRANSFER_VES: 'Transferencia',
+  ZELLE: 'Zelle',
+};
+
+const PAYMENT_STATUS_META: Record<string, { label: string; className: string }> = {
+  VERIFIED: { label: 'VERIFICADO', className: 'bg-emerald-100 text-emerald-800' },
+  PENDING: { label: 'EN VALIDACIÓN', className: 'bg-amber-100 text-amber-800' },
+  REJECTED: { label: 'RECHAZADO', className: 'bg-rose-100 text-rose-800' },
+};
+
 export const formatDateEs = (d?: string | null) => {
   if (!d) return '—';
   const str = String(d);
@@ -39,6 +51,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
   const [isEditingRate, setIsEditingRate] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [payments, setPayments] = useState<any[]>([]);
 
   const billId = bill?.id ?? null;
   const condoId = bill?.condo_id ?? null;
@@ -58,6 +71,7 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
         ]);
         if (cancelled) return;
         setBillDetail(detail?.bill ?? null);
+        setPayments(Array.isArray(detail?.payments) ? detail.payments : []);
         setExpenses(Array.isArray(exp) ? exp : []);
         setBankAccounts(Array.isArray(banks) ? banks : []);
         if (bcv?.rate && Number(bcv.rate) > 0) {
@@ -620,6 +634,62 @@ export function BillDetailModal({ bill, onClose }: BillDetailModalProps) {
               </span>
             </div>
           </div>
+
+          {/* Conciliación visible: pagos reportados sobre este recibo */}
+          {payments.length > 0 && (
+            <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-xs print:hidden" data-html2canvas-ignore="true">
+              <div className="bg-slate-100/90 px-3 py-1.5 flex items-center justify-between border-b border-slate-200 font-bold text-slate-800">
+                <span className="uppercase text-[10px]">Pagos vinculados a este recibo ({payments.length})</span>
+              </div>
+              <div className="overflow-x-auto max-h-56 overflow-y-auto">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="text-[9.5px] uppercase text-slate-500 font-semibold bg-slate-50/90 border-b border-slate-200 sticky top-0">
+                    <tr>
+                      <th className="py-1.5 px-3">Fecha</th>
+                      <th className="py-1.5 px-3">Método</th>
+                      <th className="py-1.5 px-3">Referencia</th>
+                      <th className="py-1.5 px-3 text-right">Monto</th>
+                      <th className="py-1.5 px-3 text-center">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {payments.map((p: any) => {
+                      const meta = PAYMENT_STATUS_META[p.status] || {
+                        label: p.status,
+                        className: 'bg-slate-100 text-slate-600',
+                      };
+                      const amountNum = Number(p.amount_paid);
+                      return (
+                        <tr key={p.id} className="align-top">
+                          <td className="py-1.5 px-3 whitespace-nowrap">{formatDateEs(p.payment_date)}</td>
+                          <td className="py-1.5 px-3">{PAYMENT_METHOD_LABELS[p.payment_method] || p.payment_method}</td>
+                          <td className="py-1.5 px-3 font-mono">{p.reference_number || '—'}</td>
+                          <td className="py-1.5 px-3 text-right whitespace-nowrap">
+                            <span className="font-bold">
+                              {p.currency === 'USD'
+                                ? `$${amountNum.toFixed(2)}`
+                                : ves(amountNum)}
+                            </span>
+                            {p.currency !== 'USD' && Number(p.equivalent_usd) > 0 && (
+                              <span className="text-slate-400 text-[10px] ml-1">≈ ${Number(p.equivalent_usd).toFixed(2)}</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-3 text-center">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[9.5px] font-bold ${meta.className}`}>
+                              {meta.label}
+                            </span>
+                            {p.status === 'REJECTED' && p.rejection_reason && (
+                              <p className="text-[9.5px] text-rose-600 mt-0.5 text-left">{p.rejection_reason}</p>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

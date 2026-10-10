@@ -15,9 +15,11 @@ import {
   Clock,
   Wallet,
   Home,
+  Eye,
 } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 import { usd, ves, toNum, bcvRateNum } from '../lib/format';
+import { BillDetailModal } from './BillDetailModal';
 
 interface MyBillsViewProps {
   bcvRate: string;
@@ -33,7 +35,7 @@ interface MyBillsViewProps {
 const STATUS_META: Record<string, { label: string; className: string }> = {
   PAID: { label: 'PAGADO', className: 'bg-emerald-100 text-emerald-800' },
   PARTIAL: { label: 'PARCIAL', className: 'bg-amber-100 text-amber-800' },
-  PENDING: { label: 'PENDIENTE', className: 'bg-sky-100 text-sky-800' },
+  PENDING: { label: 'POR PAGAR', className: 'bg-sky-100 text-sky-800' },
   OVERDUE: { label: 'MOROSO', className: 'bg-rose-100 text-rose-800' },
   CANCELLED: { label: 'ANULADO', className: 'bg-slate-100 text-slate-500' },
 };
@@ -429,6 +431,7 @@ export function MyBillsView({ bcvRate }: MyBillsViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [target, setTarget] = useState<ReportTarget | null>(null);
+  const [detailTarget, setDetailTarget] = useState<ReportTarget | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -601,23 +604,31 @@ export function MyBillsView({ bcvRate }: MyBillsViewProps) {
                           <td className="py-3 px-3 text-center">
                             <StatusBadge status={bill.status} />
                           </td>
-                          <td className="py-3 px-3 text-right">
-                            {canPay ? (
+                          <td className="py-3 px-3">
+                            <div className="flex items-center justify-end gap-2">
                               <button
-                                onClick={() => setTarget({ condo, unit, bill })}
-                                disabled={condo.bankAccounts.length === 0}
-                                title={
-                                  condo.bankAccounts.length === 0
-                                    ? 'Esta residencia no tiene cuenta receptora'
-                                    : 'Reportar el pago de este recibo'
-                                }
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold transition disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+                                onClick={() => setDetailTarget({ condo, unit, bill })}
+                                title="Ver el detalle completo del recibo"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-emerald-700 hover:border-emerald-300 rounded-lg text-[11px] font-semibold transition"
                               >
-                                Reportar pago
+                                <Eye className="w-3.5 h-3.5" />
+                                Ver recibo
                               </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-400 font-medium">—</span>
-                            )}
+                              {canPay && (
+                                <button
+                                  onClick={() => setTarget({ condo, unit, bill })}
+                                  disabled={condo.bankAccounts.length === 0}
+                                  title={
+                                    condo.bankAccounts.length === 0
+                                      ? 'Esta residencia no tiene cuenta receptora'
+                                      : 'Reportar el pago de este recibo'
+                                  }
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold transition disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+                                >
+                                  Reportar pago
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -639,6 +650,27 @@ export function MyBillsView({ bcvRate }: MyBillsViewProps) {
             setTarget(null);
             setRefreshKey((k) => k + 1);
           }}
+        />
+      )}
+
+      {detailTarget && (
+        <BillDetailModal
+          bill={{
+            id: detailTarget.bill.billId,
+            condo_id: detailTarget.condo.id,
+            billing_period_id: detailTarget.bill.periodId,
+            // Mapeo (camelCase → snake_case) para el render inmediato;
+            // al llegar el detalle del backend se sobrescriben los campos.
+            period_month: detailTarget.bill.periodMonth,
+            period_year: detailTarget.bill.periodYear,
+            unit_code: detailTarget.unit.unitCode,
+            total_due_usd: detailTarget.bill.totalDueUsd,
+            total_paid_usd: detailTarget.bill.totalPaidUsd,
+            remaining_balance_usd: detailTarget.bill.remainingUsd,
+            status: detailTarget.bill.status,
+            condo_name: detailTarget.condo.name,
+          }}
+          onClose={() => setDetailTarget(null)}
         />
       )}
     </div>

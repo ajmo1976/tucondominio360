@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 
 @Injectable()
@@ -46,7 +46,7 @@ export class BillingService {
     return res.rows;
   }
 
-  async getBillDetail(billId: string) {
+  async getBillDetail(billId: string, user?: { id: string; is_superadmin: boolean }) {
     const billRes = await this.db.query(
       `SELECT cb.*, 
               pu.unit_code, pu.unit_type, pu.floor, pu.has_gas_service, b.name as building_name,
@@ -63,6 +63,26 @@ export class BillingService {
 
     if (billRes.rows.length === 0) {
       throw new NotFoundException('Recibo de condominio no encontrado');
+    }
+
+    // Privacidad: solo la administración (superadmin) o quien tiene el inmueble
+    // asignado / acceso activo a la residencia puede ver el detalle del recibo.
+    if (user && !user.is_superadmin) {
+      const ownerOk = await this.db.query(
+        `SELECT 1
+         FROM condo_bills cb
+         JOIN property_units pu ON pu.id = cb.property_unit_id
+         WHERE cb.id = $1
+           AND (EXISTS (SELECT 1 FROM unit_occupants uo
+                        WHERE uo.property_unit_id = pu.id AND uo.user_id = $2)
+                OR EXISTS (SELECT 1 FROM condo_user_access cua
+                           WHERE cua.condo_id = cb.condo_id AND cua.user_id = $2 AND cua.is_active = TRUE))
+         LIMIT 1`,
+        [billId, user.id],
+      );
+      if (ownerOk.rows.length === 0) {
+        throw new ForbiddenException('No tienes acceso a este recibo');
+      }
     }
 
     const itemsRes = await this.db.query(
@@ -92,11 +112,27 @@ export class BillingService {
       (e) => e.expense_subtype === 'EXTRAORDINARY',
     );
 
+    // Pagos reportados y vinculados a este recibo (conciliación visible para
+    // el propietario: estado del pago y motivo de rechazo si aplica).
+    const paymentsRes = await this.db.query(
+      `SELECT pr.id, pr.payment_method, pr.reference_number, pr.payment_date,
+              pr.origin_bank, pr.origin_phone, pr.origin_email, pr.currency,
+              pr.amount_paid, pr.exchange_rate_applied, pr.equivalent_usd,
+              pr.status, pr.rejection_reason, pr.created_at,
+              ba.bank_name AS receiver_bank_name
+       FROM payment_reports pr
+       LEFT JOIN bank_accounts ba ON ba.id = pr.bank_account_id
+       WHERE pr.condo_bill_id = $1
+       ORDER BY pr.payment_date DESC, pr.created_at DESC`,
+      [billId],
+    );
+
     return {
       bill: billRes.rows[0],
       items: expensesRes.rows,
       ordinaryExpenses,
       extraordinaryExpenses,
+      payments: paymentsRes.rows,
     };
   }
 

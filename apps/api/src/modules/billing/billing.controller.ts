@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { BillingService } from './billing.service';
@@ -33,9 +33,9 @@ export class BillingController {
   }
 
   @Get('bills/:billId')
-  @ApiOperation({ summary: 'Obtener detalle completo de un recibo con desglose de gastos y alícuota' })
-  async getBillDetail(@Param('billId') billId: string) {
-    return this.billingService.getBillDetail(billId);
+  @ApiOperation({ summary: 'Obtener detalle completo de un recibo con desglose de gastos, alícuota y pagos (solo el inmueble asignado)' })
+  async getBillDetail(@Param('billId') billId: string, @Request() req: any) {
+    return this.billingService.getBillDetail(billId, req?.user);
   }
 
   @Patch('periods/:periodId')
