@@ -12,6 +12,8 @@ import {
   Landmark,
   Edit,
   Trash2,
+  AlertTriangle,
+  BadgeCheck,
 } from 'lucide-react';
 import { AddBankAccountModal } from './AddBankAccountModal';
 import { fetchWithAuth } from '../lib/api';
@@ -96,6 +98,14 @@ export function DashboardView({
   const totalAliquots = summary?.overview?.total_aliquots ?? '—';
   const totalDebtUsd = Number(summary?.overview?.total_debt_usd || 0);
 
+  // Estado de los inmuebles: moroso = saldo pendiente > 0 (misma convención que
+  // el total de deuda y que el Dashboard de la Comunidad). Ambos contadores son
+  // mutuamente excluyentes y suman totalUnits.
+  const unitsInArrears = Number(summary?.overview?.units_in_arrears ?? 0);
+  const unitsUpToDate = Number(summary?.overview?.units_up_to_date ?? Math.max(0, totalUnits - unitsInArrears));
+  const arrearsPct = totalUnits > 0 ? (unitsInArrears / totalUnits) * 100 : 0;
+  const upToDatePct = totalUnits > 0 ? (unitsUpToDate / totalUnits) * 100 : 0;
+
   return (
     <div className="space-y-6">
       {/* Título y Subtítulo Dinámicos del Condominio Seleccionado */}
@@ -117,7 +127,7 @@ export function DashboardView({
       </div>
 
       {/* Tarjetas KPI propias de este Condominio */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Recaudación Total Proyectada */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between text-slate-500 mb-2">
@@ -164,6 +174,34 @@ export function DashboardView({
           <div className="text-2xl font-bold text-slate-900">{totalUnits} Inmuebles</div>
           <div className="text-xs font-medium text-indigo-600 mt-1">
             <span>Alícuotas: {totalAliquots}%</span>
+          </div>
+        </div>
+
+        {/* Inmuebles Morosos */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wider">Inmuebles Morosos</span>
+            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-slate-900">{unitsInArrears}</div>
+          <div className="text-xs font-medium text-rose-600 mt-1">
+            <span>{arrearsPct.toFixed(1)}% del total de inmuebles</span>
+          </div>
+        </div>
+
+        {/* Inmuebles al Día */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wider">Inmuebles al Día</span>
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <BadgeCheck className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-slate-900">{unitsUpToDate}</div>
+          <div className="text-xs font-medium text-emerald-600 mt-1">
+            <span>{upToDatePct.toFixed(1)}% del total de inmuebles</span>
           </div>
         </div>
 
