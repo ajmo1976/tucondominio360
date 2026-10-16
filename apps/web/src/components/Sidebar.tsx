@@ -11,6 +11,7 @@ import {
   Shield,
   FileSpreadsheet,
   Users,
+  Vote,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -32,9 +33,11 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps)
         { id: 'units', label: 'Propietarios y Alícuotas', icon: Home },
         { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
         { id: 'users', label: 'Usuarios y Accesos', icon: Users },
+        { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
       ]
     : [
         { id: 'community', label: 'Dashboard General', icon: LayoutDashboard },
+        { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
         { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
       ];
 

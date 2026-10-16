@@ -14,6 +14,8 @@ import { AccessView } from '../components/AccessView';
 import { MyBillsView } from '../components/MyBillsView';
 import { CommunityDashboard } from '../components/CommunityDashboard';
 import { UsersView } from '../components/UsersView';
+import { ConsultationsAdminView } from '../components/ConsultationsAdminView';
+import { ConsultationsOwnerView } from '../components/ConsultationsOwnerView';
 import { ProfileModal } from '../components/ProfileModal';
 import { CondoSelectorModal } from '../components/CondoSelectorModal';
 import { BankAccountsModal } from '../components/BankAccountsModal';
@@ -277,6 +279,13 @@ export default function Home() {
           {/* Módulo de Usuarios y Accesos (solo administración) */}
           {currentTab === 'users' && (
             <UsersView />
+          )}
+
+          {/* Consultas y Asambleas Digitales (Admin o Propietario) */}
+          {selectedCondo.id && currentTab === 'consultations' && (
+            userProfile.isSuperadmin
+              ? <ConsultationsAdminView condoId={selectedCondo.id} />
+              : <ConsultationsOwnerView condoId={selectedCondo.id} />
           )}
         </main>
       </div>
