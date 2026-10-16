@@ -134,6 +134,18 @@ CREATE TYPE consultation_status AS ENUM (
     'CANCELLED'
 );
 
+CREATE TYPE consultation_result AS ENUM (
+    'APPROVED',
+    'REJECTED',
+    'TIED',
+    'NO_VOTES'
+);
+
+CREATE TYPE consultation_elector_source AS ENUM (
+    'OWNER',
+    'MANUAL'
+);
+
 CREATE TYPE package_status AS ENUM (
     'RECEIVED_AT_GATE',
     'DELIVERED_TO_RESIDENT',
@@ -658,9 +670,14 @@ CREATE TABLE consultations (
     status consultation_status NOT NULL DEFAULT 'DRAFT',
     start_date TIMESTAMPTZ NOT NULL,
     end_date TIMESTAMPTZ NOT NULL,
-    quorum_required_aliquot NUMERIC(7,5) DEFAULT 50.00000, -- Quórum legal requerido
+    quorum_required_aliquot NUMERIC(7,5) DEFAULT 0, -- Sin quórum: umbral informativo (no decide)
     is_secret_ballot BOOLEAN NOT NULL DEFAULT FALSE,
     minutes_document_url TEXT, -- Acta final firmada
+    closed_at TIMESTAMPTZ,
+    closed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    result consultation_result,
+    winning_option_id UUID, -- FK a consultation_options(id): ver ALTER TABLE tras su definición
+    result_snapshot JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -672,6 +689,11 @@ CREATE TABLE consultation_options (
     position INT NOT NULL DEFAULT 0
 );
 
+-- FK diferido de consultations.winning_option_id (consultation_options se define después).
+ALTER TABLE consultations
+    ADD CONSTRAINT consultations_winning_option_id_fkey
+    FOREIGN KEY (winning_option_id) REFERENCES consultation_options(id) ON DELETE SET NULL;
+
 CREATE TABLE consultation_votes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     consultation_id UUID NOT NULL REFERENCES consultations(id) ON DELETE CASCADE,
@@ -680,7 +702,22 @@ CREATE TABLE consultation_votes (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     aliquot_applied NUMERIC(7,5) NOT NULL, -- Alícuota congelada al momento de la votación
     voted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    verification_code VARCHAR(40),
     CONSTRAINT uq_consultation_unit UNIQUE (consultation_id, property_unit_id)
+);
+
+-- Padrón congelado al publicar: qué usuario puede emitir el voto de qué unidad.
+CREATE TABLE consultation_electors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    consultation_id UUID NOT NULL REFERENCES consultations(id) ON DELETE CASCADE,
+    property_unit_id UUID NOT NULL REFERENCES property_units(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source consultation_elector_source NOT NULL DEFAULT 'OWNER',
+    added_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_consultation_elector UNIQUE (consultation_id, property_unit_id, user_id)
 );
 
 -- -----------------------------------------------------------------------------
@@ -756,6 +793,9 @@ CREATE INDEX idx_visitor_unit ON visitor_invitations(property_unit_id);
 CREATE INDEX idx_reservations_amenity_date ON amenity_reservations(amenity_id, reservation_date);
 CREATE INDEX idx_tickets_condo_status ON maintenance_tickets(condo_id, status);
 CREATE INDEX idx_consultations_condo ON consultations(condo_id, status);
+CREATE INDEX idx_consultation_electors ON consultation_electors(consultation_id);
+CREATE INDEX idx_consultation_options ON consultation_options(consultation_id);
+CREATE INDEX idx_consultation_votes_consultation ON consultation_votes(consultation_id);
 CREATE INDEX idx_packages_unit_status ON packages(property_unit_id, status);
 CREATE INDEX idx_audit_condo ON audit_logs(condo_id);
 CREATE INDEX idx_audit_created ON audit_logs(created_at);

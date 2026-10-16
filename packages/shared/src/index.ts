@@ -41,6 +41,8 @@ export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'EMERGENCY';
 export type TicketStatus = 'OPEN' | 'ASSIGNED' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type ConsultationType = 'CARTA_CONSULTA' | 'ASAMBLEA_ORDINARIA' | 'ASAMBLEA_EXTRAORDINARIA';
 export type ConsultationStatus = 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'CANCELLED';
+export type ConsultationResult = 'APPROVED' | 'REJECTED' | 'TIED' | 'NO_VOTES';
+export type ConsultationElectorSource = 'OWNER' | 'MANUAL';
 export type PackageStatus = 'RECEIVED_AT_GATE' | 'DELIVERED_TO_RESIDENT' | 'RETURNED';
 
 // -----------------------------------------------------------------------------
