@@ -551,8 +551,28 @@ CREATE TABLE audit_logs (
 );
 
 -- -----------------------------------------------------------------------------
--- 9. CONTROL DE ACCESO Y VISITAS (GARITA & QR)
+-- 9. CONTROL DE ACCESO Y VISITAS (GARITA, VEHÍCULOS & QR)
 -- -----------------------------------------------------------------------------
+
+CREATE TABLE resident_vehicles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    condo_id UUID NOT NULL REFERENCES condos(id) ON DELETE CASCADE,
+    property_unit_id UUID NOT NULL REFERENCES property_units(id) ON DELETE CASCADE,
+    registered_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    plate VARCHAR(15) NOT NULL,
+    vehicle_type VARCHAR(20) NOT NULL DEFAULT 'CAR', -- 'CAR' | 'SUV' | 'MOTO' | 'TRUCK' | 'OTHER'
+    brand VARCHAR(50) NOT NULL,
+    model VARCHAR(50) NOT NULL,
+    color VARCHAR(30) NOT NULL,
+    parking_spot VARCHAR(30),
+    tag_code VARCHAR(40),
+    owner_name VARCHAR(120),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_condo_vehicle_plate UNIQUE (condo_id, plate)
+);
 
 CREATE TABLE visitor_invitations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -563,12 +583,17 @@ CREATE TABLE visitor_invitations (
     visitor_doc_type document_type DEFAULT 'V',
     visitor_doc_number VARCHAR(20),
     visitor_plate VARCHAR(15), -- Placa del vehículo si ingresa en carro
+    visitor_category VARCHAR(30) NOT NULL DEFAULT 'VISITOR', -- 'VISITOR' | 'FAMILY' | 'PROVIDER' | 'DELIVERY' | 'SERVICE' | 'TAXI' | 'CONTRACTOR'
+    entry_mode VARCHAR(20) NOT NULL DEFAULT 'PEDESTRIAN', -- 'PEDESTRIAN' | 'VEHICLE'
+    company_name VARCHAR(100),
+    companion_count INT NOT NULL DEFAULT 0,
     access_code VARCHAR(32) NOT NULL UNIQUE, -- Código QR o PIN numérico de acceso
     valid_from TIMESTAMPTZ NOT NULL,
     valid_until TIMESTAMPTZ NOT NULL,
     max_uses INT NOT NULL DEFAULT 1,
     uses_count INT NOT NULL DEFAULT 0,
     status visitor_invitation_status NOT NULL DEFAULT 'ACTIVE',
+    cancelled_at TIMESTAMPTZ,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -579,9 +604,18 @@ CREATE TABLE visitor_access_logs (
     invitation_id UUID REFERENCES visitor_invitations(id) ON DELETE SET NULL,
     property_unit_id UUID REFERENCES property_units(id) ON DELETE SET NULL,
     guard_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    exit_guard_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     visitor_name VARCHAR(120) NOT NULL,
+    visitor_doc_type document_type DEFAULT 'V',
     visitor_doc_number VARCHAR(20) NOT NULL,
+    visitor_category VARCHAR(30) NOT NULL DEFAULT 'VISITOR',
+    entry_mode VARCHAR(20) NOT NULL DEFAULT 'PEDESTRIAN',
+    company_name VARCHAR(100),
     vehicle_plate VARCHAR(15),
+    destination_label VARCHAR(80),
+    authorized_by_name VARCHAR(120),
+    status VARCHAR(20) NOT NULL DEFAULT 'INSIDE', -- 'INSIDE' | 'COMPLETED' | 'DENIED' | 'INCIDENT'
+    incident_alert BOOLEAN NOT NULL DEFAULT FALSE,
     entry_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     exit_time TIMESTAMPTZ,
     notes TEXT
@@ -761,6 +795,8 @@ CREATE TABLE packages (
     photo_url TEXT,
     status package_status NOT NULL DEFAULT 'RECEIVED_AT_GATE',
     delivered_to_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    delivered_to_name VARCHAR(120),
+    notes TEXT,
     delivered_at TIMESTAMPTZ,
     received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -790,6 +826,12 @@ CREATE INDEX idx_bank_tx_ref ON bank_transactions(reference_number);
 CREATE INDEX idx_bank_tx_account_date ON bank_transactions(bank_account_id, transaction_date);
 CREATE INDEX idx_visitor_code ON visitor_invitations(access_code);
 CREATE INDEX idx_visitor_unit ON visitor_invitations(property_unit_id);
+CREATE INDEX idx_resident_vehicles_condo_plate ON resident_vehicles(condo_id, plate);
+CREATE INDEX idx_resident_vehicles_unit ON resident_vehicles(property_unit_id);
+CREATE INDEX idx_visitor_invitations_condo_status ON visitor_invitations(condo_id, status);
+CREATE INDEX idx_visitor_logs_condo_status ON visitor_access_logs(condo_id, status);
+CREATE INDEX idx_visitor_logs_condo_entry ON visitor_access_logs(condo_id, entry_time DESC);
+CREATE INDEX idx_packages_condo_status ON packages(condo_id, status);
 CREATE INDEX idx_reservations_amenity_date ON amenity_reservations(amenity_id, reservation_date);
 CREATE INDEX idx_tickets_condo_status ON maintenance_tickets(condo_id, status);
 CREATE INDEX idx_consultations_condo ON consultations(condo_id, status);

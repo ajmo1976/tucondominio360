@@ -35,7 +35,11 @@ export type PaymentMethod =
 export type PaymentStatus = 'PENDING' | 'VERIFIED' | 'REJECTED' | 'DISPUTED';
 export type BankTxType = 'CREDIT' | 'DEBIT';
 
-export type VisitorInvitationStatus = 'PENDING' | 'ACTIVE' | 'USED' | 'EXPIRED' | 'REVOKED';
+export type VisitorInvitationStatus = 'PENDING' | 'ACTIVE' | 'USED' | 'EXPIRED' | 'REVOKED' | 'CANCELLED';
+export type VisitorCategory = 'VISITOR' | 'FAMILY' | 'PROVIDER' | 'DELIVERY' | 'SERVICE' | 'TAXI' | 'CONTRACTOR';
+export type AccessEntryMode = 'PEDESTRIAN' | 'VEHICLE';
+export type AccessLogStatus = 'INSIDE' | 'COMPLETED' | 'DENIED' | 'INCIDENT';
+export type VehicleType = 'CAR' | 'SUV' | 'MOTO' | 'TRUCK' | 'OTHER';
 export type ReservationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'COMPLETED';
 export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'EMERGENCY';
 export type TicketStatus = 'OPEN' | 'ASSIGNED' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';

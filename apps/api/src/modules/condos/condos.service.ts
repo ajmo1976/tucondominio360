@@ -196,6 +196,7 @@ export class CondosService {
       await client.query(`DELETE FROM audit_logs WHERE condo_id = $1`, [condoId]);
       await client.query(`DELETE FROM visitor_access_logs WHERE condo_id = $1`, [condoId]);
       await client.query(`DELETE FROM visitor_invitations WHERE condo_id = $1`, [condoId]);
+      await client.query(`DELETE FROM resident_vehicles WHERE condo_id = $1`, [condoId]);
 
       // 6. La residencia
       const res = await client.query(`DELETE FROM condos WHERE id = $1 RETURNING id`, [condoId]);
