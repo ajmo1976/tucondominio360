@@ -1,16 +1,19 @@
 import { Buffer } from 'buffer';
 
 /**
- * Minigenerador de PDF 1.4 sin dependencias externas.
+ * Generador nativo de PDF 1.4 sin dependencias externas.
  *
- * Diseñado para generar documentos ejecutivos y actas formales:
- *  - Soporta Helvetica y Helvetica-Bold con codificación WinAnsi real (/Encoding /WinAnsiEncoding),
- *    permitiendo tildes (á, é, í, ó, ú, ñ), mayúsculas acentuadas, signos (¿, ¡, °),
- *    guiones largos (—) y caracteres especiales en cualquier visor de PDF.
- *  - Encabezado institucional prolijo con separación vertical calculada (sin solapamiento de textos).
- *  - Tablas con columnas absolutas (sin desviación en Td), cabeceras sombreadas y filas alternadas.
- *  - Bloques destacados (callouts) para dictámenes y resultados.
- *  - Parrilla de atributos clave (keyValueGrid) para identificación prolija de expedientes.
+ * Características clave de diseño:
+ *  - Codificación WinAnsi real (/Encoding /WinAnsiEncoding) en Helvetica y Helvetica-Bold:
+ *    soporta tildes (á, é, í, ó, ú, ñ, Á, É, Í, Ó, Ú, Ñ, ü), signos (¿, ¡, °, •, —, –) sin pérdida.
+ *  - Sistema de coordenadas estricto por borde superior (`this.current.y` = distancia desde el
+ *    borde superior de la página hasta el tope del siguiente elemento), eliminando por completo
+ *    cualquier solapamiento entre textos, cajas, tablas y encabezados de sección.
+ *  - Métrica proporcional real de caracteres Helvetica (`measureTextWidth`) para alineación derecha
+ *    y centrada exacta al milímetro.
+ *  - Cuadrículas de identificación (`keyValueGrid`) con etiqueta superior y valor inferior por celda,
+ *    con bordes vectoriales nítidos y truncado seguro.
+ *  - Pie de página institucional automático con numeración `Página X de Y`.
  */
 
 export interface PdfColumn {
@@ -24,7 +27,7 @@ export interface PdfTextOpts {
   bold?: boolean;
   muted?: boolean;
   small?: boolean;
-  color?: string; // e.g. '0.1 0.6 0.4'
+  color?: string; // RGB 0..1 ej. '0.08 0.12 0.20'
   align?: 'left' | 'right' | 'center';
 }
 
@@ -38,22 +41,28 @@ export interface PdfHeaderConfig {
   documentRef?: string;
 }
 
+export interface PdfKeyValueItem {
+  label: string;
+  value: string;
+  fullWidth?: boolean;
+}
+
 class PageCursor {
-  y = 44;
+  y = 38;
   ops: string[] = [];
 }
 
 const PAGE_W = 612;
 const PAGE_H = 792;
-const MARGIN = 46;
-const USABLE = PAGE_W - MARGIN * 2;
-const BOTTOM = 44;
+const MARGIN = 44;
+const USABLE = PAGE_W - MARGIN * 2; // 524pt
+const BOTTOM = 52; // espacio reservado para pie de página
 
 const ROOT_STYLES: Record<string, number> = {
-  title: 15,
-  subtitle: 9.5,
-  section: 10.5,
-  body: 9.5,
+  title: 14.5,
+  subtitle: 9,
+  section: 9.5,
+  body: 9,
   small: 8,
 };
 
@@ -69,7 +78,7 @@ const UNICODE_TO_WINANSI: Record<number, number> = {
   0x2026: 133, // …
 };
 
-/** Convierte texto UTF-8 a bytes WinAnsi (Windows-1252) para PDF Type 1. */
+/** Convierte texto UTF-8 a bytes WinAnsi (Windows-1252) para fuentes Type1 de PDF. */
 function toWinAnsiBytes(text: string): number[] {
   const out: number[] = [];
   for (const ch of text) {
@@ -79,10 +88,9 @@ function toWinAnsiBytes(text: string): number[] {
     } else if (cp < 32) {
       out.push(32);
     } else if (cp <= 0xff) {
-      // Caracteres Latin-1/WinAnsi directos (á é í ó ú ñ Á É Í Ó Ú Ñ ü ¿ ¡ ° etc.)
       out.push(cp);
     } else {
-      out.push(32); // fuera de rango: espacio limpio
+      out.push(32);
     }
   }
   return out;
@@ -92,9 +100,9 @@ function escapePdfString(text: string): string {
   let res = '';
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    if (code === 92) res += '\\\\'; // \
-    else if (code === 40) res += '\\('; // (
-    else if (code === 41) res += '\\)'; // )
+    if (code === 92) res += '\\\\';
+    else if (code === 40) res += '\\(';
+    else if (code === 41) res += '\\)';
     else if (code === 13) res += '\\r';
     else if (code === 10) res += '\\n';
     else res += text[i];
@@ -108,6 +116,47 @@ function toPdfLiteral(text: string): string {
   return `(${escapePdfString(latin)})`;
 }
 
+/**
+ * Ancho proporcional real en unidades de 1/1000 em para Helvetica (Type1 estándar).
+ * Permite alinear textos a la derecha/centro y envolver líneas sin desbordes.
+ */
+function charWidthEm(ch: string, bold = false): number {
+  let w = 556;
+  if (' .,;:!¡\'|ijlIíìîïÍ'.includes(ch)) w = 278;
+  else if ('()[]-/frtJ"«»'.includes(ch)) w = 333;
+  else if ('°'.includes(ch)) w = 400;
+  else if ('ceksvxyzéèêëç'.includes(ch)) w = 500;
+  else if ('0123456789abdghnopquáóúñü?¿$–•L'.includes(ch)) w = 556;
+  else if ('TZ'.includes(ch)) w = 611;
+  else if ('ABEFPSVXYÁÉ+='.includes(ch)) w = 667;
+  else if ('CDHKNRUÚÑw'.includes(ch)) w = 722;
+  else if ('GOQÓ'.includes(ch)) w = 778;
+  else if ('mM'.includes(ch)) w = 833;
+  else if ('%W'.includes(ch)) w = 910;
+  else if ('—@'.includes(ch)) w = 980;
+  return bold ? w * 1.045 : w;
+}
+
+export function measureTextWidth(text: string, size: number, bold = false): number {
+  let total = 0;
+  for (const ch of text) {
+    total += charWidthEm(ch, bold);
+  }
+  return (total / 1000) * size;
+}
+
+export function clipTextToWidth(text: string, maxWidth: number, size: number, bold = false): string {
+  if (measureTextWidth(text, size, bold) <= maxWidth) return text;
+  const ellipsis = '…';
+  const ellW = measureTextWidth(ellipsis, size, bold);
+  let out = '';
+  for (const ch of text) {
+    if (measureTextWidth(out + ch, size, bold) + ellW > maxWidth) break;
+    out += ch;
+  }
+  return `${out.trimEnd()}${ellipsis}`;
+}
+
 export class PdfBuilder {
   private pages: PageCursor[] = [];
   private current: PageCursor;
@@ -119,72 +168,78 @@ export class PdfBuilder {
   }
 
   /**
-   * Encabezado institucional estructurado.
-   * Reserva el espacio vertical exacto para cada fila, evitando cualquier solapamiento.
+   * Encabezado institucional limpio y sin solapamientos.
+   * `this.current.y` representa siempre el tope superior de la fila actual.
    */
   private writeHeader() {
-    // 1. Fila de metadatos del SaaS y fecha de emisión
-    const metaLeft = 'TuCondominio360 · Plataforma de Gestión Condominial';
+    this.current.y = 36;
+
+    // 1. Cinta superior del sistema y fecha de emisión
+    const metaLeft = 'TUCONDOMINIO360 · PLATAFORMA DE GESTIÓN Y PARTICIPACIÓN CONDOMINIAL';
     const metaRight = `Emisión: ${pdfDateTime()}`;
-    this.emitTextAbsolute(metaLeft, MARGIN, PAGE_H - this.current.y, { size: 7.5, bold: true, muted: true });
-    this.emitTextAbsolute(metaRight, PAGE_W - MARGIN, PAGE_H - this.current.y, {
-      size: 7.5,
-      muted: true,
+    this.drawLineAtTop(metaLeft, MARGIN, this.current.y, {
+      size: 7.2,
+      bold: true,
+      color: '0.42 0.47 0.55',
+    });
+    this.drawLineAtTop(metaRight, PAGE_W - MARGIN, this.current.y, {
+      size: 7.2,
+      color: '0.42 0.47 0.55',
       align: 'right',
     });
-    this.moveY(12);
+    this.current.y += 14;
 
-    // 2. Bloque de identificación del Condominio (si fue provisto)
+    // 2. Identificación de la Residencia / Condominio y RIF
     if (this.header.condoName) {
-      const condoTitle = this.header.condoName.toUpperCase();
-      this.emitTextAbsolute(condoTitle, MARGIN, PAGE_H - this.current.y, {
+      const codeSuffix = this.header.condoCode ? ` (${this.header.condoCode})` : '';
+      const condoTitle = `${this.header.condoName.toUpperCase()}${codeSuffix}`;
+      this.drawLineAtTop(condoTitle, MARGIN, this.current.y, {
         size: 11,
         bold: true,
-        color: '0.08 0.12 0.20',
+        color: '0.05 0.38 0.28',
       });
       if (this.header.condoRif) {
-        this.emitTextAbsolute(`RIF: ${this.header.condoRif}`, PAGE_W - MARGIN, PAGE_H - this.current.y, {
+        this.drawLineAtTop(`RIF: ${this.header.condoRif}`, PAGE_W - MARGIN, this.current.y, {
           size: 8.5,
           bold: true,
-          muted: true,
+          color: '0.25 0.30 0.38',
           align: 'right',
         });
       }
-      this.moveY(15);
+      this.current.y += 16;
     }
 
-    // 3. Título principal del documento y referencia
-    this.emitTextAbsolute(this.header.title, MARGIN, PAGE_H - this.current.y, {
+    // 3. Título principal del documento y código de referencia oficial
+    this.drawLineAtTop(this.header.title, MARGIN, this.current.y, {
       size: ROOT_STYLES.title,
       bold: true,
-      color: '0.06 0.10 0.18',
+      color: '0.06 0.09 0.16',
     });
     if (this.header.documentRef) {
-      this.emitTextAbsolute(this.header.documentRef, PAGE_W - MARGIN, PAGE_H - this.current.y, {
+      this.drawLineAtTop(this.header.documentRef, PAGE_W - MARGIN, this.current.y + 2, {
         size: 8.5,
         bold: true,
-        color: '0.05 0.55 0.40',
+        color: '0.05 0.48 0.35',
         align: 'right',
       });
     }
-    this.moveY(18);
+    this.current.y += 19;
 
-    // 4. Subtítulo (si fue provisto)
+    // 4. Subtítulo descriptivo (si aplica)
     if (this.header.subtitle) {
-      this.emitTextAbsolute(this.header.subtitle, MARGIN, PAGE_H - this.current.y, {
+      const cleanSub = clipTextToWidth(this.header.subtitle, USABLE, ROOT_STYLES.subtitle, false);
+      this.drawLineAtTop(cleanSub, MARGIN, this.current.y, {
         size: ROOT_STYLES.subtitle,
-        color: '0.35 0.40 0.48',
+        color: '0.32 0.37 0.45',
       });
-      this.moveY(13);
+      this.current.y += 14;
     }
 
-    // 5. Barra decorativa institucional (accent bar esmeralda + línea gris sutil)
-    const yBar = PAGE_H - this.current.y;
-    // Barra verde esmeralda (altura 2pt)
-    this.current.ops.push(`0.08 0.65 0.48 rg\n${MARGIN} ${yBar - 1} ${USABLE} 2 re\nf`);
-    // Línea divisoria gris tenue
-    this.current.ops.push(`0.85 0.88 0.92 rg\n${MARGIN} ${yBar - 3} ${USABLE} 0.5 re\nf`);
-    this.moveY(14);
+    // 5. Doble barra divisoria institucional (acento esmeralda + línea gris)
+    const yBarTop = PAGE_H - this.current.y;
+    this.current.ops.push(`0.06 0.60 0.44 rg\n${MARGIN} ${yBarTop - 2} ${USABLE} 2 re\nf`);
+    this.current.ops.push(`0.82 0.86 0.90 rg\n${MARGIN} ${yBarTop - 4.5} ${USABLE} 0.6 re\nf`);
+    this.current.y += 14;
   }
 
   private addPage() {
@@ -200,21 +255,25 @@ export class PdfBuilder {
   }
 
   private writePageHeaderContinued() {
-    const yPos = PAGE_H - this.current.y;
-    this.emitTextAbsolute(`${this.header.title} (continuación)`, MARGIN, yPos, {
+    this.current.y = 36;
+    const leftText = [this.header.condoName, `${this.header.title} (continuación)`].filter(Boolean).join(' · ');
+    this.drawLineAtTop(leftText, MARGIN, this.current.y, {
       size: 8,
       bold: true,
-      muted: true,
+      color: '0.38 0.43 0.50',
     });
-    this.emitTextAbsolute(pdfDateTime(), PAGE_W - MARGIN, yPos, {
-      size: 8,
-      muted: true,
-      align: 'right',
-    });
-    this.moveY(8);
+    if (this.header.documentRef) {
+      this.drawLineAtTop(this.header.documentRef, PAGE_W - MARGIN, this.current.y, {
+        size: 8,
+        bold: true,
+        color: '0.05 0.48 0.35',
+        align: 'right',
+      });
+    }
+    this.current.y += 12;
     const yLine = PAGE_H - this.current.y;
-    this.current.ops.push(`0.85 0.88 0.92 rg\n${MARGIN} ${yLine} ${USABLE} 0.5 re\nf`);
-    this.moveY(10);
+    this.current.ops.push(`0.06 0.60 0.44 rg\n${MARGIN} ${yLine - 1.2} ${USABLE} 1.2 re\nf`);
+    this.current.y += 10;
   }
 
   moveY(delta: number) {
@@ -227,36 +286,58 @@ export class PdfBuilder {
 
   /** Línea separadora horizontal de ancho completo. */
   hr(thickness = 0.5) {
-    const y = PAGE_H - this.current.y - thickness / 2;
-    this.current.ops.push(`0.86 0.88 0.92 rg\n${MARGIN} ${y} ${USABLE} ${thickness} re\nf`);
-    this.current.y += thickness + 4;
+    this.ensureSpace(thickness + 8);
+    const y = PAGE_H - this.current.y - thickness;
+    this.current.ops.push(`0.84 0.87 0.91 rg\n${MARGIN} ${y} ${USABLE} ${thickness} re\nf`);
+    this.current.y += thickness + 6;
   }
 
-  /** Emite texto en una coordenada absoluta (x, y) de la página con su propio bloque BT...ET. */
-  private emitTextAbsolute(
+  /**
+   * Dibuja una línea de texto cuyo BORDE SUPERIOR está en `topOffset` (distancia desde el tope de página).
+   * Calcula internamente la línea base (`yBaseline = PAGE_H - topOffset - size * 0.78`).
+   */
+  private drawLineAtTop(
     text: string,
     x: number,
-    y: number,
+    topOffset: number,
     opts: {
       size?: number;
       bold?: boolean;
       muted?: boolean;
       color?: string;
       align?: 'left' | 'right' | 'center';
-      width?: number;
+    } = {},
+  ) {
+    const size = opts.size ?? ROOT_STYLES.body;
+    const yBaseline = PAGE_H - topOffset - size * 0.78;
+    this.emitTextBaseline(text, x, yBaseline, opts);
+  }
+
+  /**
+   * Emite texto en una coordenada absoluta de línea base `(x, yBaseline)` en espacio PDF.
+   */
+  private emitTextBaseline(
+    text: string,
+    x: number,
+    yBaseline: number,
+    opts: {
+      size?: number;
+      bold?: boolean;
+      muted?: boolean;
+      color?: string;
+      align?: 'left' | 'right' | 'center';
     } = {},
   ) {
     const size = opts.size ?? ROOT_STYLES.body;
     const font = opts.bold ? 'F2' : 'F1';
     let color = opts.color;
     if (!color) {
-      color = opts.muted ? '0.45 0.48 0.54' : '0.10 0.12 0.16';
+      color = opts.muted ? '0.42 0.47 0.54' : '0.10 0.13 0.18';
     }
 
     let posX = x;
     if (opts.align === 'right' || opts.align === 'center') {
-      const approxCharWidth = size * 0.52;
-      const textWidth = text.length * approxCharWidth;
+      const textWidth = measureTextWidth(text, size, Boolean(opts.bold));
       if (opts.align === 'right') {
         posX = x - textWidth;
       } else {
@@ -265,142 +346,212 @@ export class PdfBuilder {
     }
 
     this.current.ops.push(
-      `BT\n/${font} ${size} Tf\n${color} rg\n${Math.round(posX * 10) / 10} ${Math.round(y * 10) / 10} Td\n${toPdfLiteral(
+      `BT\n/${font} ${size} Tf\n${color} rg\n${Math.round(posX * 10) / 10} ${Math.round(yBaseline * 10) / 10} Td\n${toPdfLiteral(
         text,
       )} Tj\nET`,
     );
   }
 
-  /** Encabezado de sección visual con acento lateral. */
+  /** Encabezado de sección numerada con acento esmeralda y línea inferior sutil. */
   section(title: string) {
-    this.ensureSpace(22);
-    const y = PAGE_H - this.current.y;
-    // Pildora de acento esmeralda
-    this.current.ops.push(`0.08 0.65 0.48 rg\n${MARGIN} ${y - 2} 3.5 11 re\nf`);
-    // Texto de la sección
-    this.emitTextAbsolute(title.toUpperCase(), MARGIN + 8, y, {
+    if (this.current.y > 115) {
+      this.current.y += 4;
+    }
+    this.ensureSpace(34);
+    const yTop = PAGE_H - this.current.y;
+
+    // Barra vertical esmeralda (de yTop - 12 a yTop - 1)
+    this.current.ops.push(`0.06 0.60 0.44 rg\n${MARGIN} ${yTop - 12} 3.5 11 re\nf`);
+    // Título de sección (baseline en yTop - 10)
+    this.emitTextBaseline(title.toUpperCase(), MARGIN + 9, yTop - 10, {
       size: ROOT_STYLES.section,
       bold: true,
-      color: '0.12 0.16 0.22',
+      color: '0.08 0.13 0.20',
     });
-    this.current.y += 16;
+    // Subrayado fino de sección
+    this.current.ops.push(`0.86 0.89 0.93 rg\n${MARGIN} ${yTop - 15.5} ${USABLE} 0.5 re\nf`);
+
+    this.current.y += 22;
   }
 
   /**
-   * Tarjeta destacada tipo Callout (ideal para dictamen, resultados, acuerdos aprobados).
+   * Bloque destacado tipo Callout (para dictámenes, certificaciones y avisos de estado).
    */
   callout(
     title: string,
     subtitle?: string,
     variant: 'emerald' | 'amber' | 'rose' | 'slate' = 'emerald',
   ) {
-    const height = subtitle ? 42 : 32;
-    this.ensureSpace(height + 6);
+    const subLines = subtitle ? this.wrap(subtitle, USABLE - 24, 8.5, false) : [];
+    const height = 22 + (subLines.length > 0 ? subLines.length * 12 + 4 : 4);
+    this.ensureSpace(height + 8);
 
-    const yBottom = PAGE_H - this.current.y - height;
+    const yTop = PAGE_H - this.current.y;
+    const yBottom = yTop - height;
 
-    let bg = '0.94 0.98 0.95'; // emerald bg
-    let border = '0.08 0.65 0.48'; // emerald border
-    let titleColor = '0.05 0.45 0.32';
+    let bg = '0.94 0.985 0.96';
+    let border = '0.06 0.60 0.44';
+    let titleColor = '0.04 0.42 0.30';
 
     if (variant === 'amber') {
-      bg = '0.99 0.97 0.92';
-      border = '0.85 0.60 0.12';
-      titleColor = '0.65 0.42 0.05';
+      bg = '0.995 0.975 0.92';
+      border = '0.85 0.58 0.10';
+      titleColor = '0.62 0.38 0.04';
     } else if (variant === 'rose') {
-      bg = '0.99 0.93 0.94';
-      border = '0.88 0.22 0.28';
-      titleColor = '0.68 0.12 0.18';
+      bg = '0.995 0.94 0.95';
+      border = '0.85 0.20 0.26';
+      titleColor = '0.65 0.10 0.16';
     } else if (variant === 'slate') {
-      bg = '0.95 0.96 0.98';
+      bg = '0.955 0.965 0.98';
       border = '0.45 0.50 0.58';
-      titleColor = '0.20 0.25 0.32';
+      titleColor = '0.18 0.23 0.30';
     }
 
-    // Fondo del callout
+    // Fondo y borde perimetral fino
     this.current.ops.push(`${bg} rg\n${MARGIN} ${yBottom} ${USABLE} ${height} re\nf`);
-    // Borde izquierdo grueso
+    this.current.ops.push(`${border} RG\n0.5 w\n${MARGIN} ${yBottom} ${USABLE} ${height} re\nS`);
+    // Franja lateral izquierda de 4pt
     this.current.ops.push(`${border} rg\n${MARGIN} ${yBottom} 4 ${height} re\nf`);
 
-    // Texto interior
-    const textY = subtitle ? yBottom + height - 15 : yBottom + height - 19;
-    this.emitTextAbsolute(title, MARGIN + 12, textY, {
-      size: 10.5,
+    // Título del callout
+    const clippedTitle = clipTextToWidth(title, USABLE - 24, 10, true);
+    this.emitTextBaseline(clippedTitle, MARGIN + 12, yTop - 14.5, {
+      size: 10,
       bold: true,
       color: titleColor,
     });
 
-    if (subtitle) {
-      this.emitTextAbsolute(subtitle, MARGIN + 12, textY - 14, {
+    // Subtítulo (1 o más líneas)
+    subLines.forEach((line, idx) => {
+      this.emitTextBaseline(line, MARGIN + 12, yTop - 27.5 - idx * 12, {
         size: 8.5,
-        color: '0.30 0.35 0.42',
+        color: '0.26 0.31 0.38',
       });
-    }
+    });
 
     this.current.y += height + 8;
   }
 
   /**
-   * Cuadrícula prolija de clave-valor (2 columnas) con fondo claro.
+   * Ficha estructurada de pares Clave-Valor (2 columnas o ancho completo por fila).
+   * En cada celda, la etiqueta va arriba en mayúsculas pequeñas y el valor debajo en negrita,
+   * garantizando legibilidad total y cero desborde horizontal.
    */
-  keyValueGrid(items: Array<{ label: string; value: string }>) {
-    const rowHeight = 16;
-    const totalHeight = Math.ceil(items.length / 2) * rowHeight + 8;
-    this.ensureSpace(totalHeight);
+  keyValueGrid(items: PdfKeyValueItem[]) {
+    if (items.length === 0) return;
 
-    const yBottom = PAGE_H - this.current.y - totalHeight;
-    // Fondo sutil
-    this.current.ops.push(`0.97 0.98 0.99 rg\n${MARGIN} ${yBottom} ${USABLE} ${totalHeight} re\nf`);
-    // Borde sutil
-    this.current.ops.push(`0.88 0.90 0.94 rg\n${MARGIN} ${yBottom} ${USABLE} ${totalHeight} re\ns`);
-
-    const colWidth = USABLE / 2;
-    for (let i = 0; i < items.length; i++) {
-      const col = i % 2;
-      const row = Math.floor(i / 2);
-      const x = MARGIN + col * colWidth + 10;
-      const y = PAGE_H - this.current.y - 14 - row * rowHeight;
-
-      const item = items[i];
-      // Etiqueta
-      this.emitTextAbsolute(`${item.label}:`, x, y, {
-        size: 8,
-        bold: true,
-        muted: true,
-      });
-      // Valor
-      const labelW = item.label.length * 4.8 + 8;
-      this.emitTextAbsolute(item.value, x + labelW, y, {
-        size: 8.5,
-        bold: true,
-        color: '0.10 0.14 0.20',
-      });
+    // Agrupar en filas (fullWidth ocupa toda la fila; las demás van de 2 en 2)
+    const rows: Array<PdfKeyValueItem[]> = [];
+    let pendingPair: PdfKeyValueItem[] = [];
+    for (const item of items) {
+      if (item.fullWidth) {
+        if (pendingPair.length > 0) {
+          rows.push(pendingPair);
+          pendingPair = [];
+        }
+        rows.push([item]);
+      } else {
+        pendingPair.push(item);
+        if (pendingPair.length === 2) {
+          rows.push(pendingPair);
+          pendingPair = [];
+        }
+      }
     }
+    if (pendingPair.length > 0) rows.push(pendingPair);
+
+    const rowHeight = 27;
+    const totalHeight = rows.length * rowHeight;
+    this.ensureSpace(totalHeight + 8);
+
+    const yTop = PAGE_H - this.current.y;
+    const yBottom = yTop - totalHeight;
+    const halfW = USABLE / 2;
+
+    // Fondo gris muy tenue
+    this.current.ops.push(`0.975 0.98 0.99 rg\n${MARGIN} ${yBottom} ${USABLE} ${totalHeight} re\nf`);
+
+    // Líneas divisorias internas y contenido de celdas
+    for (let r = 0; r < rows.length; r++) {
+      const rowItems = rows[r];
+      const cellTop = yTop - r * rowHeight;
+      const cellBottom = cellTop - rowHeight;
+
+      if (r > 0) {
+        this.current.ops.push(`0.88 0.90 0.94 rg\n${MARGIN} ${cellTop} ${USABLE} 0.5 re\nf`);
+      }
+
+      if (rowItems.length === 1 && rowItems[0].fullWidth) {
+        const it = rowItems[0];
+        this.emitTextBaseline(it.label.toUpperCase(), MARGIN + 10, cellTop - 9.5, {
+          size: 6.8,
+          bold: true,
+          color: '0.42 0.47 0.55',
+        });
+        const val = clipTextToWidth(it.value || '—', USABLE - 20, 9, true);
+        this.emitTextBaseline(val, MARGIN + 10, cellTop - 21, {
+          size: 9,
+          bold: true,
+          color: '0.08 0.12 0.18',
+        });
+      } else {
+        // Divisor vertical central en esta fila
+        this.current.ops.push(`0.88 0.90 0.94 rg\n${MARGIN + halfW} ${cellBottom} 0.5 ${rowHeight} re\nf`);
+
+        for (let c = 0; c < rowItems.length; c++) {
+          const it = rowItems[c];
+          const cellX = MARGIN + c * halfW;
+          this.emitTextBaseline(it.label.toUpperCase(), cellX + 10, cellTop - 9.5, {
+            size: 6.8,
+            bold: true,
+            color: '0.42 0.47 0.55',
+          });
+          const val = clipTextToWidth(it.value || '—', halfW - 20, 9, true);
+          this.emitTextBaseline(val, cellX + 10, cellTop - 21, {
+            size: 9,
+            bold: true,
+            color: '0.08 0.12 0.18',
+          });
+        }
+      }
+    }
+
+    // Borde perimetral con color de trazo RG explícito (evita borde negro por defecto)
+    this.current.ops.push(`0.82 0.86 0.91 RG\n0.6 w\n${MARGIN} ${yBottom} ${USABLE} ${totalHeight} re\nS`);
 
     this.current.y += totalHeight + 8;
   }
 
-  /** Texto libre multilínea con salto automático por ancho. */
+  /** Párrafo de texto multilínea con salto automático por ancho real en puntos. */
   text(text: string, opts: PdfTextOpts = {}) {
     const size = opts.size ?? (opts.small ? ROOT_STYLES.small : ROOT_STYLES.body);
-    const lineHeight = size + 4.5;
-    const bold = opts.bold ? 'F2' : 'F1';
-    let color = opts.color;
-    if (!color) {
-      color = opts.muted ? '0.45 0.48 0.54' : '0.12 0.14 0.18';
-    }
+    const lineHeight = size + 4.2;
+    const isBold = Boolean(opts.bold);
 
-    for (const line of this.wrap(text, USABLE, size)) {
-      this.ensureSpace(lineHeight);
-      const yPos = PAGE_H - this.current.y;
-      this.current.ops.push(`BT\n/${bold} ${size} Tf\n${color} rg\n${MARGIN} ${yPos} Td\n${toPdfLiteral(line)} Tj\nET`);
-      this.current.y += lineHeight;
+    const paragraphs = String(text || '').split(/\r?\n/);
+    for (const para of paragraphs) {
+      const trimmed = para.trim();
+      if (!trimmed) {
+        this.current.y += lineHeight * 0.5;
+        continue;
+      }
+      for (const line of this.wrap(trimmed, USABLE, size, isBold)) {
+        this.ensureSpace(lineHeight);
+        this.drawLineAtTop(line, MARGIN, this.current.y, {
+          size,
+          bold: opts.bold,
+          muted: opts.muted,
+          color: opts.color,
+          align: opts.align,
+        });
+        this.current.y += lineHeight;
+      }
     }
   }
 
   /**
-   * Fila individual de una tabla con posicionamiento absoluto por celda.
-   * Evita 100% el error de Td relativo que sacaba columnas fuera de página.
+   * Dibuja una fila de celdas en la banda vertical `[yRowBottom, yRowBottom + rowHeight]`,
+   * centrando verticalmente la línea base de cada celda.
    */
   private tableRow(
     cells: Array<{
@@ -412,29 +563,33 @@ export class PdfBuilder {
       size?: number;
       color?: string;
     }>,
-    y: number,
+    yRowBottom: number,
+    rowHeight: number,
   ) {
     let x = MARGIN;
     for (const cell of cells) {
       const size = cell.size ?? ROOT_STYLES.small;
-      const text = cell.text || ' ';
-      const maxChars = Math.max(3, Math.floor(cell.width / (size * 0.48)));
-      const clipped = text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
+      const isBold = Boolean(cell.bold);
+      const padX = 6;
+      const rawText = cell.text || ' ';
+      const clipped = clipTextToWidth(rawText, Math.max(12, cell.width - padX * 2), size, isBold);
 
-      let drawX = x + 4; // padding left
+      // Centrado vertical real dentro de la fila:
+      const yBaseline = yRowBottom + (rowHeight - size * 0.72) / 2;
+
+      let drawX = x + padX;
       if (cell.align === 'right') {
-        const textW = clipped.length * (size * 0.50);
-        drawX = x + cell.width - textW - 4;
+        drawX = x + cell.width - padX;
       } else if (cell.align === 'center') {
-        const textW = clipped.length * (size * 0.50);
-        drawX = x + (cell.width - textW) / 2;
+        drawX = x + cell.width / 2;
       }
 
-      this.emitTextAbsolute(clipped, drawX, y, {
+      this.emitTextBaseline(clipped, drawX, yBaseline, {
         size,
-        bold: cell.bold,
+        bold: isBold,
         muted: cell.muted,
         color: cell.color,
+        align: cell.align ?? 'left',
       });
 
       x += cell.width;
@@ -442,78 +597,102 @@ export class PdfBuilder {
   }
 
   /**
-   * Tabla estructurada con encabezado sombreado, celdas alineadas y filas alternadas.
+   * Tabla estructurada con cabecera sombreada, filas alternadas, centrado vertical exacto
+   * y fila opcional de totales (`footerRow`).
    */
   table(
     cols: Array<PdfColumn>,
     rows: Array<Array<string>>,
-    opts: { size?: number } = {},
+    opts: { size?: number; footerRow?: Array<string> } = {},
   ) {
     const sumW = cols.reduce((a, c) => a + c.width, 0);
-    const scale = sumW > USABLE ? USABLE / sumW : 1;
+    const scale = sumW > 0 ? USABLE / sumW : 1;
     const widths = cols.map((c) => Math.round(c.width * scale * 10) / 10);
     const size = opts.size ?? ROOT_STYLES.small;
-    const rowHeight = size + 7;
+    const headerHeight = size + 10;
+    const rowHeight = size + 9;
 
     // 1. Cabecera de la tabla
-    this.ensureSpace(rowHeight + 4);
-    const yHeaderBox = PAGE_H - this.current.y - rowHeight + 2;
-    // Fondo sombreado de la cabecera
-    this.current.ops.push(`0.92 0.94 0.97 rg\n${MARGIN} ${yHeaderBox} ${USABLE} ${rowHeight} re\nf`);
-    // Línea inferior de la cabecera
-    this.current.ops.push(`0.75 0.78 0.85 rg\n${MARGIN} ${yHeaderBox} ${USABLE} 0.8 re\nf`);
+    this.ensureSpace(headerHeight + rowHeight);
+    const yHeaderTop = PAGE_H - this.current.y;
+    const yHeaderBottom = yHeaderTop - headerHeight;
+
+    this.current.ops.push(`0.91 0.93 0.96 rg\n${MARGIN} ${yHeaderBottom} ${USABLE} ${headerHeight} re\nf`);
+    this.current.ops.push(`0.74 0.78 0.85 rg\n${MARGIN} ${yHeaderBottom} ${USABLE} 0.8 re\nf`);
 
     const headerCells = cols.map((c, i) => ({
       text: c.label,
       width: widths[i],
       bold: true,
-      color: '0.14 0.18 0.25',
-      align: c.align ?? (i > 0 && /%|Unidad|Monto|Alícuota|Voto|Fecha/i.test(c.label) ? 'right' : 'left'),
-      size: size,
+      color: '0.12 0.16 0.24',
+      align: c.align ?? (i > 0 && /%|Unidad|Inmuebles|Monto|Alícuota|Voto|Fecha/i.test(c.label) ? 'right' : 'left'),
+      size,
     }));
-    this.tableRow(headerCells, PAGE_H - this.current.y - 3);
-    this.current.y += rowHeight + 2;
+    this.tableRow(headerCells, yHeaderBottom, headerHeight);
+    this.current.y += headerHeight;
 
     // 2. Filas de datos
     for (let rIdx = 0; rIdx < rows.length; rIdx++) {
       const row = rows[rIdx];
       this.ensureSpace(rowHeight);
-      const yRowBox = PAGE_H - this.current.y - rowHeight + 2;
+      const yRowTop = PAGE_H - this.current.y;
+      const yRowBottom = yRowTop - rowHeight;
 
-      // Filas alternadas (zebra striping muy sutil)
       if (rIdx % 2 === 1) {
-        this.current.ops.push(`0.98 0.985 0.995 rg\n${MARGIN} ${yRowBox} ${USABLE} ${rowHeight} re\nf`);
+        this.current.ops.push(`0.978 0.984 0.992 rg\n${MARGIN} ${yRowBottom} ${USABLE} ${rowHeight} re\nf`);
       }
-      // Línea divisoria muy suave entre filas
-      this.current.ops.push(`0.91 0.92 0.95 rg\n${MARGIN} ${yRowBox} ${USABLE} 0.3 re\nf`);
+      this.current.ops.push(`0.90 0.92 0.95 rg\n${MARGIN} ${yRowBottom} ${USABLE} 0.4 re\nf`);
 
+      const isHighlightRow = row.some((cell) => /\[GANADORA\]/i.test(cell));
       const cells = row.map((text, i) => ({
         text,
         width: widths[i],
+        bold: isHighlightRow && i <= 1,
         align: cols[i].align ?? (i > 0 && /%|USD|VES|Bs/i.test(text) ? 'right' : 'left'),
         size,
-        color: '0.12 0.15 0.20',
+        color: isHighlightRow ? '0.04 0.42 0.30' : '0.12 0.15 0.20',
       }));
 
-      this.tableRow(cells, PAGE_H - this.current.y - 3);
+      this.tableRow(cells, yRowBottom, rowHeight);
       this.current.y += rowHeight;
     }
 
-    // Línea de cierre inferior de la tabla
-    const yBottom = PAGE_H - this.current.y + 2;
-    this.current.ops.push(`0.82 0.85 0.90 rg\n${MARGIN} ${yBottom} ${USABLE} 0.6 re\nf`);
-    this.current.y += 6;
+    // 3. Fila de totales / cierre de tabla (opcional)
+    if (opts.footerRow && opts.footerRow.length > 0) {
+      this.ensureSpace(rowHeight);
+      const yFootTop = PAGE_H - this.current.y;
+      const yFootBottom = yFootTop - rowHeight;
+
+      this.current.ops.push(`0.93 0.95 0.97 rg\n${MARGIN} ${yFootBottom} ${USABLE} ${rowHeight} re\nf`);
+      this.current.ops.push(`0.76 0.80 0.86 rg\n${MARGIN} ${yFootTop - 0.6} ${USABLE} 0.6 re\nf`);
+
+      const footerCells = opts.footerRow.map((text, i) => ({
+        text,
+        width: widths[i],
+        bold: true,
+        align: cols[i].align ?? 'left',
+        size,
+        color: '0.08 0.12 0.20',
+      }));
+      this.tableRow(footerCells, yFootBottom, rowHeight);
+      this.current.y += rowHeight;
+    }
+
+    // Borde exterior de toda la tabla
+    const yTableEnd = PAGE_H - this.current.y;
+    this.current.ops.push(`0.78 0.82 0.88 rg\n${MARGIN} ${yTableEnd} ${USABLE} 0.7 re\nf`);
+    this.current.y += 8;
   }
 
-  /** Divide texto en líneas por ancho disponible. */
-  private wrap(text: string, width: number, size: number): string[] {
-    const maxChars = Math.max(8, Math.floor(width / (size * 0.52)));
-    if (text.length <= maxChars) return [text];
+  /** Divide un párrafo en líneas utilizando el ancho real en puntos (`measureTextWidth`). */
+  private wrap(text: string, maxWidth: number, size: number, bold = false): string[] {
+    if (measureTextWidth(text, size, bold) <= maxWidth) return [text];
     const lines: string[] = [];
     let current = '';
     for (const word of text.split(/\s+/)) {
-      if ((current + ' ' + word).trim().length <= maxChars) {
-        current = (current + ' ' + word).trim();
+      const candidate = current ? `${current} ${word}` : word;
+      if (measureTextWidth(candidate, size, bold) <= maxWidth) {
+        current = candidate;
       } else {
         if (current) lines.push(current);
         current = word;
@@ -523,30 +702,61 @@ export class PdfBuilder {
     return lines;
   }
 
+  /** Dibuja el pie de página institucional y el número de página en cada hoja antes de serializar. */
+  private renderPageFooters() {
+    const total = this.pages.length;
+    const footerLeft =
+      this.header.footer ||
+      'TuCondominio360 · Documento oficial con validez administrativa y respaldo auditable en base de datos';
+
+    this.pages.forEach((page, idx) => {
+      const pageLabel = `Página ${idx + 1} de ${total}`;
+      const yLine = 38;
+      const yText = 26;
+
+      page.ops.push(`0.85 0.88 0.92 rg\n${MARGIN} ${yLine} ${USABLE} 0.5 re\nf`);
+
+      // Izquierda
+      page.ops.push(
+        `BT\n/F1 7.2 Tf\n0.45 0.49 0.56 rg\n${MARGIN} ${yText} Td\n${toPdfLiteral(
+          clipTextToWidth(footerLeft, USABLE - 80, 7.2, false),
+        )} Tj\nET`,
+      );
+
+      // Derecha (Página X de Y)
+      const rightW = measureTextWidth(pageLabel, 7.2, true);
+      const rightX = Math.round((PAGE_W - MARGIN - rightW) * 10) / 10;
+      page.ops.push(`BT\n/F2 7.2 Tf\n0.35 0.40 0.48 rg\n${rightX} ${yText} Td\n${toPdfLiteral(pageLabel)} Tj\nET`);
+    });
+  }
+
   /**
-   * Ensambla el PDF final (catálogo, páginas, fuentes WinAnsi, streams y xref).
+   * Ensambla el archivo PDF 1.4 final.
    */
   build(): Buffer {
+    this.renderPageFooters();
+
     const objects: Array<{ body: string }> = [];
 
-    // 1: Catalog, 2: Pages /Kids
+    // 1: Catalog, 2: Pages
     objects.push({ body: `<< /Type /Catalog /Pages 2 0 R >>` });
 
     const pageCount = this.pages.length;
-    const kids = Array.from({ length: pageCount }, (_, i) => 5 + i * 2).map((n) => `${n} 0 R`).join(' ');
+    const kids = Array.from({ length: pageCount }, (_, i) => 5 + i * 2)
+      .map((n) => `${n} 0 R`)
+      .join(' ');
     objects.push({ body: `<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>` });
 
-    // 3: Helvetica con codificación WinAnsi explícita
+    // 3: Helvetica (WinAnsiEncoding)
     objects.push({
       body: `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`,
     });
-    // 4: Helvetica-Bold con codificación WinAnsi explícita
+    // 4: Helvetica-Bold (WinAnsiEncoding)
     objects.push({
       body: `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`,
     });
 
     for (let i = 0; i < pageCount; i++) {
-      const pageObjNum = 5 + i * 2;
       const contentObjNum = 6 + i * 2;
       const content = this.pages[i].ops.join('\n');
       objects.push({
@@ -581,16 +791,13 @@ export function pdfMoney(value: number | string | null | undefined): string {
 /** Fecha corta es-VE — acepta string ISO o Date de pg. */
 export function pdfDate(value: string | Date | null | undefined): string {
   if (!value) return '—';
-  const d =
-    value instanceof Date
-      ? value
-      : new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  const d = value instanceof Date ? value : new Date(`${String(value).slice(0, 10)}T00:00:00`);
   if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
   const months = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
   return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-/** Fecha + hora corta es-VE para el encabezado de los documentos. */
+/** Fecha + hora corta es-VE para el encabezado y marcas de tiempo. */
 export function pdfDateTime(iso: Date = new Date()): string {
   const months = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
   const pad = (n: number) => String(n).padStart(2, '0');

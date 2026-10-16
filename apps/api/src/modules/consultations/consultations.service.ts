@@ -504,15 +504,26 @@ export class ConsultationsService {
     );
   }
 
-  /** Votos públicos de la consulta (unidad, votante, opción y fecha) para verificabilidad. */
+  /** Votos públicos de la consulta (unidad, votante, opción, fecha y código) para verificabilidad. */
   private async loadPublicVotes(
     id: string,
-  ): Promise<Array<{ unitCode: string; voter: string; optionId: string; votedAt: string }>> {
+  ): Promise<
+    Array<{
+      unitCode: string;
+      voter: string;
+      optionId: string;
+      votedAt: string;
+      verificationCode: string;
+      aliquotApplied: number;
+    }>
+  > {
     const votesRes = await this.db.query(
       `SELECT pu.unit_code AS "unitCode",
               CONCAT(u.first_name, ' ', u.last_name) AS voter,
               v.consultation_option_id AS "optionId",
-              v.voted_at AS "votedAt"
+              v.voted_at AS "votedAt",
+              v.verification_code AS "verificationCode",
+              v.aliquot_applied AS "aliquotApplied"
        FROM consultation_votes v
        JOIN property_units pu ON pu.id = v.property_unit_id
        JOIN users u ON u.id = v.user_id
@@ -526,6 +537,8 @@ export class ConsultationsService {
       voter: v.voter,
       optionId: v.optionId,
       votedAt: v.votedAt instanceof Date ? v.votedAt.toISOString() : v.votedAt,
+      verificationCode: v.verificationCode,
+      aliquotApplied: Number(v.aliquotApplied ?? 0),
     }));
   }
 
@@ -537,7 +550,7 @@ export class ConsultationsService {
   async buildActa(id: string): Promise<Buffer> {
     const res = await this.db.query(
       `SELECT c.id, c.title, c.description, c.consultation_type, c.status,
-              c.start_date, c.end_date, c.result_snapshot, c.minutes_document_url,
+              c.start_date, c.end_date, c.closed_at, c.result_snapshot, c.minutes_document_url,
               co.name AS condo_name, co.rif AS condo_rif, co.code AS condo_code
        FROM consultations c
        JOIN condos co ON co.id = c.condo_id
@@ -562,6 +575,19 @@ export class ConsultationsService {
       [id],
     );
 
+    let cancelReason: string | null = null;
+    if (consultation.status === 'CANCELLED') {
+      const auditRes = await this.db.query(
+        `SELECT new_values FROM audit_logs
+         WHERE action = 'CONSULTATION_CANCELLED' AND record_id = $1
+         ORDER BY created_at DESC LIMIT 1`,
+        [id],
+      );
+      if (auditRes.rows.length > 0 && auditRes.rows[0].new_values) {
+        cancelReason = auditRes.rows[0].new_values.reason ?? null;
+      }
+    }
+
     const optionTitleById = new Map(tally.options.map((o) => [o.optionId, o.title]));
     const winnerTitle = tally.winnerOptionId
       ? optionTitleById.get(tally.winnerOptionId) ?? null
@@ -577,6 +603,8 @@ export class ConsultationsService {
       description: consultation.description,
       startDate: consultation.start_date,
       endDate: consultation.end_date,
+      closedAt: consultation.closed_at,
+      cancelReason,
       status: consultation.status,
       result: consultation.status === 'CANCELLED' ? null : tally.result,
       winnerTitle: consultation.status === 'CANCELLED' ? null : winnerTitle,
@@ -587,6 +615,8 @@ export class ConsultationsService {
         voter: vote.voter,
         optionTitle: optionTitleById.get(vote.optionId) ?? '—',
         votedAt: vote.votedAt,
+        verificationCode: vote.verificationCode,
+        aliquotApplied: vote.aliquotApplied,
       })),
       minutesDocumentUrl: consultation.minutes_document_url ?? null,
     });
@@ -629,6 +659,7 @@ export class ConsultationsService {
     return buildVoteReceiptPdf({
       condoName: vote.condo_name,
       condoRif: vote.condo_rif,
+      condoCode: vote.condo_code,
       consultationTitle: vote.consultation_title,
       consultationType: vote.consultation_type,
       unitCode: vote.unit_code,
