@@ -11,6 +11,12 @@ import { AddElectorDto } from './dto/add-elector.dto';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
 import { VoteDto } from './dto/vote.dto';
+import { computeConsultationTally, TallyResult } from './tally';
+
+// Semántica de `result` (Ruling R3): APPROVED = decisión tomada (existe opción
+// mayoritaria por unidades), no "el sí ganó"; TIED = empate (sin decisión);
+// NO_VOTES = sin votos; REJECTED queda reservado/no se produce.
+type ConsultationResult = 'APPROVED' | 'REJECTED' | 'TIED' | 'NO_VOTES';
 
 interface VoteMeta {
   ip?: string;
@@ -312,6 +318,161 @@ export class ConsultationsService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Cierra una consulta publicada y congela su resultado en `result_snapshot`
+   * (JSONB) dentro de una transacción con la fila bloqueada (FOR UPDATE). El
+   * recuento se decide por unidades, no por alícuota. Cerrar antes de `end_date`
+   * es válido (cierre anticipado por el administrador).
+   */
+  async close(user: any, id: string): Promise<{ result: ConsultationResult; snapshot: TallyResult }> {
+    const client = await this.db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const res = await client.query(`SELECT condo_id, status FROM consultations WHERE id = $1 FOR UPDATE`, [
+        id,
+      ]);
+      if (res.rows.length === 0) throw new NotFoundException('Consulta no encontrada');
+
+      const consultation = res.rows[0];
+      if (consultation.status !== 'PUBLISHED') {
+        throw new BadRequestException('Solo se cierran consultas publicadas');
+      }
+
+      const optionsRes = await client.query(
+        `SELECT id, title, position FROM consultation_options
+         WHERE consultation_id = $1
+         ORDER BY position ASC`,
+        [id],
+      );
+      const votesRes = await client.query(
+        `SELECT consultation_option_id, aliquot_applied FROM consultation_votes
+         WHERE consultation_id = $1`,
+        [id],
+      );
+
+      const tally = computeConsultationTally(
+        optionsRes.rows.map((o) => ({ id: o.id, title: o.title, position: o.position })),
+        votesRes.rows.map((v) => ({
+          optionId: v.consultation_option_id,
+          aliquot: Number(v.aliquot_applied),
+        })),
+      );
+
+      await client.query(
+        `UPDATE consultations SET
+           status = 'CLOSED',
+           closed_at = NOW(),
+           closed_by_user_id = $2,
+           result = $3,
+           winning_option_id = $4,
+           result_snapshot = $5
+         WHERE id = $1`,
+        [id, user.id, tally.result, tally.winnerOptionId, JSON.stringify(tally)],
+      );
+
+      await client.query(
+        `INSERT INTO audit_logs (condo_id, user_id, action, entity_name, entity_id, new_values)
+         VALUES ($1, $2, 'CONSULTATION_CLOSED', 'consultations', $3, $4)`,
+        [
+          consultation.condo_id,
+          user.id,
+          id,
+          JSON.stringify({
+            result: tally.result,
+            winnerOptionId: tally.winnerOptionId,
+            totalUnits: tally.totalUnits,
+            totalAliquot: tally.totalAliquot,
+          }),
+        ],
+      );
+
+      await client.query('COMMIT');
+      return { result: tally.result, snapshot: tally };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Resultados de la consulta: recuento en vivo mientras está `PUBLISHED`, o el
+   * `result_snapshot` congelado al cerrar. Los votos se exponen públicamente
+   * (unidad, votante, opción y fecha) — no hay voto secreto. Un no-superadmin no
+   * puede ver los resultados de un borrador.
+   */
+  async getResults(
+    user: any,
+    id: string,
+  ): Promise<{
+    tally: TallyResult;
+    votes: Array<{ unitCode: string; voter: string; optionId: string; votedAt: string }>;
+    closed: boolean;
+    result: ConsultationResult | null;
+  }> {
+    const res = await this.db.query(
+      `SELECT status, result, result_snapshot FROM consultations WHERE id = $1`,
+      [id],
+    );
+    if (res.rows.length === 0) throw new NotFoundException('Consulta no encontrada');
+
+    const consultation = res.rows[0];
+    if (!user.is_superadmin && consultation.status === 'DRAFT') {
+      throw new NotFoundException('Consulta no encontrada');
+    }
+
+    let tally: TallyResult;
+    if (consultation.result_snapshot) {
+      tally = consultation.result_snapshot as TallyResult;
+    } else {
+      const optionsRes = await this.db.query(
+        `SELECT id, title, position FROM consultation_options
+         WHERE consultation_id = $1
+         ORDER BY position ASC`,
+        [id],
+      );
+      const votesRes = await this.db.query(
+        `SELECT consultation_option_id, aliquot_applied FROM consultation_votes
+         WHERE consultation_id = $1`,
+        [id],
+      );
+      tally = computeConsultationTally(
+        optionsRes.rows.map((o) => ({ id: o.id, title: o.title, position: o.position })),
+        votesRes.rows.map((v) => ({
+          optionId: v.consultation_option_id,
+          aliquot: Number(v.aliquot_applied),
+        })),
+      );
+    }
+
+    const votesRes = await this.db.query(
+      `SELECT pu.unit_code AS "unitCode",
+              CONCAT(u.first_name, ' ', u.last_name) AS voter,
+              v.consultation_option_id AS "optionId",
+              v.voted_at AS "votedAt"
+       FROM consultation_votes v
+       JOIN property_units pu ON pu.id = v.property_unit_id
+       JOIN users u ON u.id = v.user_id
+       WHERE v.consultation_id = $1
+       ORDER BY v.voted_at ASC`,
+      [id],
+    );
+
+    return {
+      tally,
+      votes: votesRes.rows.map((v) => ({
+        unitCode: v.unitCode,
+        voter: v.voter,
+        optionId: v.optionId,
+        votedAt: v.votedAt instanceof Date ? v.votedAt.toISOString() : v.votedAt,
+      })),
+      closed: consultation.status === 'CLOSED' || consultation.status === 'CANCELLED',
+      result: consultation.result ?? null,
+    };
   }
 
   /**

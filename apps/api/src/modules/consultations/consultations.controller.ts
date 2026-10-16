@@ -60,6 +60,20 @@ export class ConsultationsController {
     return this.service.publish(req.user, id);
   }
 
+  @Post(':id/close')
+  @UseGuards(SuperAdminGuard)
+  @ApiOperation({ summary: 'Cierra la consulta y congela el resultado (solo Super Administrador)' })
+  close(@Request() req, @Param('id') id: string) {
+    return this.service.close(req.user, id);
+  }
+
+  @Get(':id/results')
+  @UseGuards(ConsultationMemberGuard)
+  @ApiOperation({ summary: 'Resultados de la consulta (recuento en vivo o congelado) y votos públicos' })
+  results(@Request() req, @Param('id') id: string) {
+    return this.service.getResults(req.user, id);
+  }
+
   @Get(':id/my-eligibility')
   @UseGuards(ConsultationMemberGuard)
   @ApiOperation({ summary: 'Unidades del padrón del usuario y su estado de votación' })
