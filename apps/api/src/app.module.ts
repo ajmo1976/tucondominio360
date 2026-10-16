@@ -11,6 +11,7 @@ import { UsersModule } from './modules/users/users.module';
 import { CommunityModule } from './modules/community/community.module';
 import { ConsultationsModule } from './modules/consultations/consultations.module';
 import { AccessModule } from './modules/access/access.module';
+import { AmenitiesModule } from './modules/amenities/amenities.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AccessModule } from './modules/access/access.module';
     CommunityModule,
     ConsultationsModule,
     AccessModule,
+    AmenitiesModule,
   ],
   controllers: [AppController],
 })
