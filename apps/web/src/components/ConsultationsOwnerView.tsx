@@ -177,23 +177,16 @@ export function ConsultationsOwnerView({ condoId }: { condoId: string }) {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetchWithAuth(`/consultations?condoId=${condoId}`);
-      if (!res.ok) {
-        throw new Error('No se pudieron cargar las consultas');
-      }
-      const data: ConsultationItem[] = await res.json();
-      setConsultations(data);
+      const data: ConsultationItem[] = await fetchWithAuth(`/consultations?condoId=${condoId}`);
+      setConsultations(Array.isArray(data) ? data : []);
 
       // Cargar elegibilidad en paralelo para cada consulta
       const elMap: Record<string, EligibleUnit[]> = {};
       await Promise.allSettled(
-        data.map(async (c) => {
+        (Array.isArray(data) ? data : []).map(async (c) => {
           try {
-            const elRes = await fetchWithAuth(`/consultations/${c.id}/my-eligibility`);
-            if (elRes.ok) {
-              const elData = await elRes.json();
-              elMap[c.id] = elData.units || [];
-            }
+            const elData = await fetchWithAuth(`/consultations/${c.id}/my-eligibility`);
+            elMap[c.id] = elData?.units || [];
           } catch {
             // Ignorar error individual de elegibilidad
           }
@@ -231,11 +224,8 @@ export function ConsultationsOwnerView({ condoId }: { condoId: string }) {
 
     try {
       // Cargar opciones completas de la consulta
-      const res = await fetchWithAuth(`/consultations/${consultation.id}`);
-      if (res.ok) {
-        const full = await res.json();
-        setConsultationOptions(full.options || []);
-      }
+      const full = await fetchWithAuth(`/consultations/${consultation.id}`);
+      setConsultationOptions(full?.options || []);
     } catch {
       setVoteError('No se pudieron obtener las opciones de votación');
     }
@@ -249,7 +239,7 @@ export function ConsultationsOwnerView({ condoId }: { condoId: string }) {
       setIsSubmittingVote(true);
       setVoteError(null);
 
-      const res = await fetchWithAuth(`/consultations/${votingConsultation.id}/vote`, {
+      const receipt = await fetchWithAuth(`/consultations/${votingConsultation.id}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -258,12 +248,6 @@ export function ConsultationsOwnerView({ condoId }: { condoId: string }) {
         }),
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || 'Error al emitir el voto');
-      }
-
-      const receipt = await res.json();
       setVoteReceipt({
         id: receipt.id,
         verificationCode: receipt.verificationCode,
@@ -272,14 +256,11 @@ export function ConsultationsOwnerView({ condoId }: { condoId: string }) {
       });
 
       // Refrescar elegibilidad en segundo plano
-      const elRes = await fetchWithAuth(`/consultations/${votingConsultation.id}/my-eligibility`);
-      if (elRes.ok) {
-        const elData = await elRes.json();
-        setEligibilityMap((prev) => ({
-          ...prev,
-          [votingConsultation.id]: elData.units || [],
-        }));
-      }
+      const elData = await fetchWithAuth(`/consultations/${votingConsultation.id}/my-eligibility`);
+      setEligibilityMap((prev) => ({
+        ...prev,
+        [votingConsultation.id]: elData?.units || [],
+      }));
     } catch (err: any) {
       setVoteError(err.message || 'No se pudo registrar el voto');
     } finally {
@@ -295,11 +276,7 @@ export function ConsultationsOwnerView({ condoId }: { condoId: string }) {
     setLoadingResults(true);
 
     try {
-      const res = await fetchWithAuth(`/consultations/${consultation.id}/results`);
-      if (!res.ok) {
-        throw new Error('No se pudieron cargar los resultados');
-      }
-      const data = await res.json();
+      const data = await fetchWithAuth(`/consultations/${consultation.id}/results`);
       setResultsData(data);
     } catch (err: any) {
       setResultsError(err.message || 'Error al cargar resultados');

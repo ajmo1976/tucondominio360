@@ -243,12 +243,7 @@ export function AccessView({ condoId }: { condoId: string }) {
     try {
       setLoading(true);
       setError(null);
-      const ovRes = await fetchWithAuth(`/access/overview?condoId=${condoId}`);
-      if (!ovRes.ok) {
-        const err = await ovRes.json().catch(() => ({}));
-        throw new Error(err.message || 'No se pudo cargar el módulo de control de acceso');
-      }
-      const ov: AccessOverview = await ovRes.json();
+      const ov: AccessOverview = await fetchWithAuth(`/access/overview?condoId=${condoId}`);
       setOverview(ov);
       setConfigForm(ov.config);
 
@@ -287,35 +282,35 @@ export function AccessView({ condoId }: { condoId: string }) {
     if (q.trim()) params.set('q', q.trim());
     if (from) params.set('from', from);
     if (to) params.set('to', to);
-    const res = await fetchWithAuth(`/access/logs?${params.toString()}`);
-    if (res.ok) setLogs(await res.json());
+    const data = await fetchWithAuth(`/access/logs?${params.toString()}`);
+    if (Array.isArray(data)) setLogs(data);
   };
 
   const loadInvitations = async (status = invStatusFilter, q = invSearch) => {
     const params = new URLSearchParams({ condoId });
     if (status && status !== 'ALL') params.set('status', status);
     if (q.trim()) params.set('q', q.trim());
-    const res = await fetchWithAuth(`/access/invitations?${params.toString()}`);
-    if (res.ok) setInvitations(await res.json());
+    const data = await fetchWithAuth(`/access/invitations?${params.toString()}`);
+    if (Array.isArray(data)) setInvitations(data);
   };
 
   const loadVehicles = async (q = vehicleSearch) => {
     const params = new URLSearchParams({ condoId });
     if (q.trim()) params.set('q', q.trim());
-    const [vRes, dRes] = await Promise.all([
+    const [vData, dData] = await Promise.all([
       fetchWithAuth(`/access/vehicles?${params.toString()}`),
       fetchWithAuth(`/access/directory?${params.toString()}`),
     ]);
-    if (vRes.ok) setVehicles(await vRes.json());
-    if (dRes.ok) setDirectory(await dRes.json());
+    if (Array.isArray(vData)) setVehicles(vData);
+    if (Array.isArray(dData)) setDirectory(dData);
   };
 
   const loadPackages = async (status = pkgStatusFilter, q = pkgSearch) => {
     const params = new URLSearchParams({ condoId });
     if (status && status !== 'ALL') params.set('status', status);
     if (q.trim()) params.set('q', q.trim());
-    const res = await fetchWithAuth(`/access/packages?${params.toString()}`);
-    if (res.ok) setPackages(await res.json());
+    const data = await fetchWithAuth(`/access/packages?${params.toString()}`);
+    if (Array.isArray(data)) setPackages(data);
   };
 
   useEffect(() => {
@@ -327,15 +322,11 @@ export function AccessView({ condoId }: { condoId: string }) {
     const payload = { ...(configForm || overview?.config), ...override, condoId };
     try {
       setSubmitting(true);
-      const res = await fetchWithAuth('/access/config', {
+      await fetchWithAuth('/access/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'No se pudo actualizar la configuración');
-      }
       setShowConfigModal(false);
       showToast('Configuración de Control de Acceso actualizada para esta residencia');
       await loadOverviewAndTab();
@@ -353,16 +344,12 @@ export function AccessView({ condoId }: { condoId: string }) {
     try {
       setValidatingCode(true);
       setValidatedResult(null);
-      const res = await fetchWithAuth('/access/invitations/validate', {
+      const result = await fetchWithAuth('/access/invitations/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ condoId, accessCode: quickCode.trim() }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'Código no encontrado');
-      }
-      setValidatedResult(await res.json());
+      setValidatedResult(result);
     } catch (e: any) {
       alert(e.message);
     } finally {
@@ -374,15 +361,11 @@ export function AccessView({ condoId }: { condoId: string }) {
   const handleQuickCheckInFromInvitation = async (invitationId: string) => {
     try {
       setSubmitting(true);
-      const res = await fetchWithAuth('/access/logs/check-in', {
+      await fetchWithAuth('/access/logs/check-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ condoId, invitationId }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'No se pudo registrar el ingreso');
-      }
       setValidatedResult(null);
       setQuickCode('');
       showToast('Ingreso registrado exitosamente en la bitácora de garita');
@@ -399,7 +382,7 @@ export function AccessView({ condoId }: { condoId: string }) {
     e.preventDefault();
     try {
       setSubmitting(true);
-      const res = await fetchWithAuth('/access/logs/check-in', {
+      await fetchWithAuth('/access/logs/check-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -418,10 +401,6 @@ export function AccessView({ condoId }: { condoId: string }) {
           notes: checkInForm.notes || undefined,
         }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'Error al registrar ingreso');
-      }
       setShowCheckInModal(false);
       setCheckInForm({
         propertyUnitId: '',
@@ -450,15 +429,11 @@ export function AccessView({ condoId }: { condoId: string }) {
   const handleCheckOut = async (logId: string) => {
     try {
       setSubmitting(true);
-      const res = await fetchWithAuth(`/access/logs/${logId}/check-out`, {
+      await fetchWithAuth(`/access/logs/${logId}/check-out`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'Error al registrar salida');
-      }
       showToast('Salida registrada en la bitácora');
       await loadOverviewAndTab();
     } catch (e: any) {
@@ -475,7 +450,7 @@ export function AccessView({ condoId }: { condoId: string }) {
       setSubmitting(true);
       const now = new Date();
       const validUntil = new Date(now.getTime() + Number(invitationForm.validUntilHours || 24) * 3600 * 1000);
-      const res = await fetchWithAuth('/access/invitations', {
+      const created = await fetchWithAuth('/access/invitations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -495,11 +470,6 @@ export function AccessView({ condoId }: { condoId: string }) {
           notes: invitationForm.notes || undefined,
         }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'Error al generar pase');
-      }
-      const created = await res.json();
       setShowInvitationModal(false);
       setInvitationForm((prev) => ({
         ...prev,
@@ -521,10 +491,12 @@ export function AccessView({ condoId }: { condoId: string }) {
 
   const handleCancelInvitation = async (id: string) => {
     if (!confirm('¿Deseas anular este pase de acceso?')) return;
-    const res = await fetchWithAuth(`/access/invitations/${id}/cancel`, { method: 'POST' });
-    if (res.ok) {
+    try {
+      await fetchWithAuth(`/access/invitations/${id}/cancel`, { method: 'POST' });
       showToast('Pase de acceso anulado');
       await loadOverviewAndTab();
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
@@ -552,15 +524,11 @@ export function AccessView({ condoId }: { condoId: string }) {
             ...vehicleForm,
           };
 
-      const res = await fetchWithAuth(url, {
+      await fetchWithAuth(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'No se pudo guardar el vehículo');
-      }
       setShowVehicleModal(false);
       setEditingVehicle(null);
       showToast(editingVehicle ? 'Vehículo actualizado' : 'Vehículo registrado en el padrón');
@@ -574,10 +542,12 @@ export function AccessView({ condoId }: { condoId: string }) {
 
   const handleDeleteVehicle = async (id: string) => {
     if (!confirm('¿Eliminar este vehículo del padrón?')) return;
-    const res = await fetchWithAuth(`/access/vehicles/${id}`, { method: 'DELETE' });
-    if (res.ok) {
+    try {
+      await fetchWithAuth(`/access/vehicles/${id}`, { method: 'DELETE' });
       showToast('Vehículo eliminado');
       await loadOverviewAndTab();
+    } catch (e: any) {
+      alert(e.message);
     }
   };
 
@@ -586,7 +556,7 @@ export function AccessView({ condoId }: { condoId: string }) {
     e.preventDefault();
     try {
       setSubmitting(true);
-      const res = await fetchWithAuth('/access/packages', {
+      const created = await fetchWithAuth('/access/packages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -594,11 +564,6 @@ export function AccessView({ condoId }: { condoId: string }) {
           ...packageForm,
         }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'Error al registrar paquete');
-      }
-      const created = await res.json();
       setShowPackageModal(false);
       setPackageForm((prev) => ({
         ...prev,
@@ -621,7 +586,7 @@ export function AccessView({ condoId }: { condoId: string }) {
     if (!deliveringPackage) return;
     try {
       setSubmitting(true);
-      const res = await fetchWithAuth(`/access/packages/${deliveringPackage.id}/deliver`, {
+      await fetchWithAuth(`/access/packages/${deliveringPackage.id}/deliver`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -630,10 +595,6 @@ export function AccessView({ condoId }: { condoId: string }) {
           notes: deliverForm.notes || undefined,
         }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || 'No se pudo entregar el paquete');
-      }
       setDeliveringPackage(null);
       setDeliverForm({ pickupPin: '', deliveredToName: '', notes: '' });
       showToast('Entrega de paquete certificada');
