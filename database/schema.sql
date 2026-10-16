@@ -622,36 +622,90 @@ CREATE TABLE visitor_access_logs (
 );
 
 -- -----------------------------------------------------------------------------
--- 10. RESERVAS DE ÁREAS COMUNES (AMENITIES)
+-- 10. RESERVAS Y ALQUILER DE ÁREAS COMUNES (AMENITIES & MOTOR DE REGLAS)
 -- -----------------------------------------------------------------------------
 
 CREATE TABLE amenities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     condo_id UUID NOT NULL REFERENCES condos(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL, -- Ej: "Salón de Fiestas", "Parrillera Terraza", "Cancha de Tenis"
+    name VARCHAR(100) NOT NULL, -- Ej: "Salón de Fiestas", "Parrillera Terraza", "Cancha de Tenis", "Ascensor de Carga"
     description TEXT,
+    space_category VARCHAR(30) NOT NULL DEFAULT 'SOCIAL_HALL',
+    booking_mode VARCHAR(20) NOT NULL DEFAULT 'HOURLY', -- 'HOURLY' | 'FULL_DAY'
+    approval_mode VARCHAR(20) NOT NULL DEFAULT 'ADMIN_APPROVAL', -- 'AUTO_APPROVE' | 'ADMIN_APPROVAL'
+    fee_type VARCHAR(25) NOT NULL DEFAULT 'FLAT_PER_BOOKING', -- 'FREE' | 'FLAT_PER_BOOKING' | 'PER_HOUR'
     capacity INT,
     fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    cleaning_fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     deposit_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00, -- Depósito en garantía reintegrable
+    open_time TIME NOT NULL DEFAULT '08:00:00',
+    close_time TIME NOT NULL DEFAULT '22:00:00',
+    allowed_days JSONB NOT NULL DEFAULT '[0,1,2,3,4,5,6]',
     min_hours_notice INT NOT NULL DEFAULT 24,
+    min_duration_minutes INT NOT NULL DEFAULT 60,
     max_hours_per_slot INT NOT NULL DEFAULT 6,
+    max_advance_days INT NOT NULL DEFAULT 60,
+    buffer_minutes INT NOT NULL DEFAULT 30,
+    max_concurrent_bookings INT NOT NULL DEFAULT 1,
+    max_active_per_unit INT NOT NULL DEFAULT 2,
+    max_per_unit_per_month INT NOT NULL DEFAULT 4,
+    cooldown_days INT NOT NULL DEFAULT 0,
+    block_delinquent_units BOOLEAN NOT NULL DEFAULT TRUE,
+    max_allowed_debt_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     rules TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE amenity_blackouts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    condo_id UUID NOT NULL REFERENCES condos(id) ON DELETE CASCADE,
+    amenity_id UUID NOT NULL REFERENCES amenities(id) ON DELETE CASCADE,
+    title VARCHAR(140) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    start_time TIME NOT NULL DEFAULT '00:00:00',
+    end_time TIME NOT NULL DEFAULT '23:59:00',
+    reason TEXT,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE amenity_reservations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    condo_id UUID REFERENCES condos(id) ON DELETE CASCADE,
     amenity_id UUID NOT NULL REFERENCES amenities(id) ON DELETE CASCADE,
     property_unit_id UUID NOT NULL REFERENCES property_units(id) ON DELETE CASCADE,
     requested_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reservation_code VARCHAR(32) UNIQUE,
+    event_title VARCHAR(140) NOT NULL DEFAULT 'Reserva de Espacio Común',
+    event_description TEXT,
     reservation_date DATE NOT NULL,
     start_time TIME NOT NULL,
     end_time TIME NOT NULL,
     guest_count INT,
     status reservation_status NOT NULL DEFAULT 'PENDING',
+    fee_amount_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    cleaning_fee_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    deposit_amount_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    total_amount_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    payment_status VARCHAR(20) NOT NULL DEFAULT 'NOT_REQUIRED',
+    payment_reference VARCHAR(80),
+    payment_method VARCHAR(30),
     payment_report_id UUID REFERENCES payment_reports(id) ON DELETE SET NULL,
+    approved_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    approved_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    cancel_reason TEXT,
+    inspection_status VARCHAR(25) NOT NULL DEFAULT 'PENDING',
+    inspection_notes TEXT,
+    damage_deduction_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    deposit_refunded_usd NUMERIC(10,2) NOT NULL DEFAULT 0.00,
     deposit_refunded BOOLEAN NOT NULL DEFAULT FALSE,
+    inspected_at TIMESTAMPTZ,
+    inspected_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    solvency_override BOOLEAN NOT NULL DEFAULT FALSE,
     admin_notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

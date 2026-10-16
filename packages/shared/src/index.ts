@@ -41,6 +41,19 @@ export type AccessEntryMode = 'PEDESTRIAN' | 'VEHICLE';
 export type AccessLogStatus = 'INSIDE' | 'COMPLETED' | 'DENIED' | 'INCIDENT';
 export type VehicleType = 'CAR' | 'SUV' | 'MOTO' | 'TRUCK' | 'OTHER';
 export type ReservationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'COMPLETED';
+export type AmenitySpaceCategory =
+  | 'SOCIAL_HALL'
+  | 'BBQ_GRILL'
+  | 'SPORTS_COURT'
+  | 'POOL_AREA'
+  | 'COWORKING_ROOM'
+  | 'FREIGHT_ELEVATOR'
+  | 'SHARED_RESOURCE'
+  | 'CUSTOM';
+export type AmenityBookingMode = 'HOURLY' | 'FULL_DAY';
+export type AmenityApprovalMode = 'AUTO_APPROVE' | 'ADMIN_APPROVAL';
+export type AmenityFeeType = 'FREE' | 'FLAT_PER_BOOKING' | 'PER_HOUR';
+export type InspectionStatus = 'PENDING' | 'CLEAN_OK' | 'WITH_OBSERVATIONS' | 'DAMAGE_REPORTED';
 export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'EMERGENCY';
 export type TicketStatus = 'OPEN' | 'ASSIGNED' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type ConsultationType = 'CARTA_CONSULTA' | 'ASAMBLEA_ORDINARIA' | 'ASAMBLEA_EXTRAORDINARIA';
