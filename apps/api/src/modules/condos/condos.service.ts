@@ -345,6 +345,8 @@ export class CondosService {
     const stats = await this.db.query(
       `SELECT 
         COUNT(pu.id)::int as total_units,
+        COUNT(*) FILTER (WHERE pu.current_balance_usd > 0)::int as units_in_arrears,
+        COUNT(*) FILTER (WHERE pu.current_balance_usd <= 0)::int as units_up_to_date,
         COALESCE(SUM(pu.aliquot_percentage), 0)::numeric(8,5) as total_aliquots,
         COALESCE(SUM(CASE WHEN pu.current_balance_usd > 0 THEN pu.current_balance_usd ELSE 0 END), 0)::numeric(14,2) as total_debt_usd,
         COALESCE(SUM(CASE WHEN pu.current_balance_usd < 0 THEN ABS(pu.current_balance_usd) ELSE 0 END), 0)::numeric(14,2) as total_credit_balance_usd
