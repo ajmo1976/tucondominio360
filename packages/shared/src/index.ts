@@ -56,6 +56,24 @@ export type AmenityFeeType = 'FREE' | 'FLAT_PER_BOOKING' | 'PER_HOUR';
 export type InspectionStatus = 'PENDING' | 'CLEAN_OK' | 'WITH_OBSERVATIONS' | 'DAMAGE_REPORTED';
 export type TicketPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'EMERGENCY';
 export type TicketStatus = 'OPEN' | 'ASSIGNED' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+export type IncidentType =
+  | 'PLUMBING'
+  | 'PUMP_SYSTEM'
+  | 'ELEVATOR'
+  | 'ELECTRICAL'
+  | 'SECURITY_GATE'
+  | 'COMMON_AREA'
+  | 'CLEANING'
+  | 'OTHER';
+export type AnnouncementCategory =
+  | 'GENERAL'
+  | 'WATER_SERVICE'
+  | 'ELEVATOR'
+  | 'FUMIGATION'
+  | 'SECURITY'
+  | 'FINANCIAL'
+  | 'LEGAL_NOTICE'
+  | 'ASSEMBLY';
 export type ConsultationType = 'CARTA_CONSULTA' | 'ASAMBLEA_ORDINARIA' | 'ASAMBLEA_EXTRAORDINARIA';
 export type ConsultationStatus = 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'CANCELLED';
 export type ConsultationResult = 'APPROVED' | 'REJECTED' | 'TIED' | 'NO_VOTES';

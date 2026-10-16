@@ -330,9 +330,12 @@ CREATE TABLE suppliers (
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     name VARCHAR(120) NOT NULL,
     rif VARCHAR(20) NOT NULL,
+    specialty VARCHAR(60) NOT NULL DEFAULT 'Mantenimiento General',
+    contact_person VARCHAR(100),
     email VARCHAR(120),
     phone VARCHAR(30),
     address TEXT,
+    notes TEXT,
     payment_info JSONB NOT NULL DEFAULT '{}',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -721,12 +724,18 @@ CREATE TABLE maintenance_tickets (
     property_unit_id UUID REFERENCES property_units(id) ON DELETE SET NULL,
     building_id UUID REFERENCES buildings(id) ON DELETE SET NULL,
     category_id UUID REFERENCES expense_categories(id) ON DELETE SET NULL,
+    ticket_code VARCHAR(32) UNIQUE,
+    incident_type VARCHAR(30) NOT NULL DEFAULT 'PLUMBING',
+    location_area VARCHAR(100),
+    is_public_issue BOOLEAN NOT NULL DEFAULT TRUE,
     title VARCHAR(150) NOT NULL,
     description TEXT NOT NULL,
     priority ticket_priority NOT NULL DEFAULT 'MEDIUM',
     status ticket_status NOT NULL DEFAULT 'OPEN',
     assigned_to_user_id UUID REFERENCES users(id) ON DELETE SET NULL, -- Ej: Conserje o Técnico
     supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+    estimated_cost_usd NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+    actual_cost_usd NUMERIC(12,2) NOT NULL DEFAULT 0.00,
     images JSONB NOT NULL DEFAULT '[]', -- URLs de fotos de la avería
     resolved_at TIMESTAMPTZ,
     resolution_notes TEXT,
@@ -816,8 +825,11 @@ CREATE TABLE announcements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     condo_id UUID NOT NULL REFERENCES condos(id) ON DELETE CASCADE,
     author_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    announcement_code VARCHAR(32) UNIQUE,
+    category VARCHAR(30) NOT NULL DEFAULT 'GENERAL',
     title VARCHAR(180) NOT NULL,
     content TEXT NOT NULL,
+    pinned BOOLEAN NOT NULL DEFAULT FALSE,
     is_urgent BOOLEAN NOT NULL DEFAULT FALSE,
     requires_acknowledgement BOOLEAN NOT NULL DEFAULT FALSE, -- Acuse de recibo legal
     attachment_urls JSONB NOT NULL DEFAULT '[]',
@@ -829,6 +841,9 @@ CREATE TABLE announcement_reads (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     announcement_id UUID NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    property_unit_id UUID REFERENCES property_units(id) ON DELETE SET NULL,
+    signature_code VARCHAR(32),
+    acknowledgement_note VARCHAR(160),
     read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_announcement_user UNIQUE (announcement_id, user_id)
 );
