@@ -977,7 +977,7 @@ export class AccessService {
       }
 
       await client.query(
-        `INSERT INTO audit_logs (condo_id, user_id, action, table_name, record_id, new_values)
+        `INSERT INTO audit_logs (condo_id, user_id, action, entity_name, entity_id, new_values)
          VALUES ($1, $2, 'ACCESS_ENTRY_LOGGED', 'visitor_access_logs', $3, $4::jsonb)`,
         [
           dto.condoId,
@@ -1331,7 +1331,7 @@ export class AccessService {
     newValues: Record<string, any>,
   ) {
     await this.db.query(
-      `INSERT INTO audit_logs (condo_id, user_id, action, table_name, record_id, new_values)
+      `INSERT INTO audit_logs (condo_id, user_id, action, entity_name, entity_id, new_values)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
       [condoId, userId, action, tableName, recordId, JSON.stringify(newValues)],
     );

@@ -579,7 +579,7 @@ export class ConsultationsService {
     if (consultation.status === 'CANCELLED') {
       const auditRes = await this.db.query(
         `SELECT new_values FROM audit_logs
-         WHERE action = 'CONSULTATION_CANCELLED' AND record_id = $1
+         WHERE action = 'CONSULTATION_CANCELLED' AND entity_id = $1
          ORDER BY created_at DESC LIMIT 1`,
         [id],
       );

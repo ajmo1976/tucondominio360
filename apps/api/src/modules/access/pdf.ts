@@ -193,22 +193,22 @@ export function buildAccessLogbookPdf(data: AccessLogbookPdfData): Buffer {
   if (data.logs.length > 0) {
     doc.table(
       [
-        { label: 'Visitante / Empresa', width: 138, align: 'left' },
-        { label: 'Doc. / Placa', width: 78, align: 'left' },
-        { label: 'Categoría', width: 76, align: 'left' },
-        { label: 'Destino', width: 54, align: 'left' },
-        { label: 'Entrada', width: 89, align: 'right' },
-        { label: 'Salida / Estado', width: 89, align: 'right' },
+        { label: 'Visitante / Empresa', width: 132, align: 'left' },
+        { label: 'Documento / Placa', width: 106, align: 'left' },
+        { label: 'Categoría', width: 72, align: 'left' },
+        { label: 'Destino', width: 46, align: 'left' },
+        { label: 'Entrada', width: 84, align: 'right' },
+        { label: 'Salida / Estado', width: 84, align: 'right' },
       ],
       data.logs.map((row) => {
         const nameAndCompany = row.companyName
           ? `${row.visitorName} (${row.companyName})`
           : row.visitorName;
         const docAndPlate = row.vehiclePlate
-          ? `${row.visitorDoc} · [${row.vehiclePlate}]`
+          ? `${row.visitorDoc} [${row.vehiclePlate}]`
           : row.visitorDoc;
         const cat = CATEGORY_LABELS[row.category] ?? row.category;
-        const dest = row.unitCode ? `Apto ${row.unitCode}` : 'Áreas Com.';
+        const dest = row.unitCode ? `Apto ${row.unitCode}` : 'Áreas';
         const entryStr = pdfDateTime(new Date(row.entryTime));
         const exitStr = row.exitTime
           ? pdfDateTime(new Date(row.exitTime))
@@ -217,8 +217,8 @@ export function buildAccessLogbookPdf(data: AccessLogbookPdfData): Buffer {
       }),
       {
         footerRow: [
-          'TOTAL MOVIMIENTOS EN BITÁCORA',
-          `${data.vehiclesCount} veh.`,
+          'TOTAL MOVIMIENTOS',
+          `${data.vehiclesCount} con vehículo`,
           `${data.deliveriesAndServicesCount} prov/deliv.`,
           '—',
           `${data.totalEntries} ent.`,
