@@ -536,9 +536,9 @@ export class ConsultationsService {
    */
   async buildActa(id: string): Promise<Buffer> {
     const res = await this.db.query(
-      `SELECT c.title, c.description, c.consultation_type, c.status,
+      `SELECT c.id, c.title, c.description, c.consultation_type, c.status,
               c.start_date, c.end_date, c.result_snapshot, c.minutes_document_url,
-              co.name AS condo_name
+              co.name AS condo_name, co.rif AS condo_rif, co.code AS condo_code
        FROM consultations c
        JOIN condos co ON co.id = c.condo_id
        WHERE c.id = $1`,
@@ -568,7 +568,10 @@ export class ConsultationsService {
       : null;
 
     return buildActaPdf({
+      id: consultation.id,
       condoName: consultation.condo_name,
+      condoRif: consultation.condo_rif,
+      condoCode: consultation.condo_code,
       consultationType: consultation.consultation_type,
       title: consultation.title,
       description: consultation.description,
@@ -604,7 +607,9 @@ export class ConsultationsService {
               o.title AS option_title,
               c.title AS consultation_title,
               c.consultation_type,
-              co.name AS condo_name
+              co.name AS condo_name,
+              co.rif AS condo_rif,
+              co.code AS condo_code
        FROM consultation_votes v
        JOIN property_units pu ON pu.id = v.property_unit_id
        JOIN users u ON u.id = v.user_id
@@ -623,6 +628,7 @@ export class ConsultationsService {
 
     return buildVoteReceiptPdf({
       condoName: vote.condo_name,
+      condoRif: vote.condo_rif,
       consultationTitle: vote.consultation_title,
       consultationType: vote.consultation_type,
       unitCode: vote.unit_code,
