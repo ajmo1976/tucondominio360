@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -12,6 +13,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SuperAdminGuard } from '../users/guards/super-admin.guard';
+import { AddElectorDto } from './dto/add-elector.dto';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
 import { ConsultationMemberGuard } from './guards/consultation-member.guard';
@@ -48,5 +50,33 @@ export class ConsultationsController {
   @ApiOperation({ summary: 'Edita una consulta en borrador (solo Super Administrador)' })
   update(@Request() req, @Param('id') id: string, @Body() dto: UpdateConsultationDto) {
     return this.service.update(req.user, id, dto);
+  }
+
+  @Post(':id/publish')
+  @UseGuards(SuperAdminGuard)
+  @ApiOperation({ summary: 'Publica la consulta y congela el padrón (solo Super Administrador)' })
+  publish(@Request() req, @Param('id') id: string) {
+    return this.service.publish(req.user, id);
+  }
+
+  @Get(':id/electors')
+  @UseGuards(SuperAdminGuard)
+  @ApiOperation({ summary: 'Lista el padrón de habilitados (solo Super Administrador)' })
+  electors(@Request() req, @Param('id') id: string) {
+    return this.service.listElectors(req.user, id);
+  }
+
+  @Post(':id/electors')
+  @UseGuards(SuperAdminGuard)
+  @ApiOperation({ summary: 'Agrega un habilitado al padrón (solo Super Administrador)' })
+  addElector(@Request() req, @Param('id') id: string, @Body() dto: AddElectorDto) {
+    return this.service.addElector(req.user, id, dto);
+  }
+
+  @Delete(':id/electors/:electorId')
+  @UseGuards(SuperAdminGuard)
+  @ApiOperation({ summary: 'Elimina un habilitado del padrón (solo Super Administrador)' })
+  removeElector(@Request() req, @Param('id') id: string, @Param('electorId') electorId: string) {
+    return this.service.removeElector(req.user, id, electorId);
   }
 }
