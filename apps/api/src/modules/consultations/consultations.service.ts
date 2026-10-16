@@ -1,13 +1,36 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
 import { AddElectorDto } from './dto/add-elector.dto';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
+import { VoteDto } from './dto/vote.dto';
+
+interface VoteMeta {
+  ip?: string;
+  userAgent?: string;
+}
+
+export interface VoteReceipt {
+  voteId: string;
+  verificationCode: string;
+  optionId: string;
+  unitCode: string;
+  votedAt: string;
+}
+
+export interface EligibilityUnit {
+  propertyUnitId: string;
+  unitCode: string;
+  alreadyVoted: boolean;
+  votedOptionId: string | null;
+}
 
 // Un usuario regular solo ve consultas ya publicadas o cerradas; los borradores
 // son visibles únicamente para el Super Administrador.
@@ -289,6 +312,154 @@ export class ConsultationsService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Emite el voto de una unidad del padrón de forma transaccional. Bloquea la
+   * consulta (FOR UPDATE) para que la validación de estado/fechas y la
+   * inserción sean atómicas; la unicidad por unidad la garantiza la BD.
+   */
+  async vote(user: any, id: string, dto: VoteDto, meta: VoteMeta): Promise<VoteReceipt> {
+    const client = await this.db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const res = await client.query(
+        `SELECT status, condo_id, start_date, end_date
+         FROM consultations WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      if (res.rows.length === 0) throw new NotFoundException('Consulta no encontrada');
+
+      const consultation = res.rows[0];
+      if (consultation.status !== 'PUBLISHED') {
+        throw new ForbiddenException('La consulta no está abierta para votación');
+      }
+
+      const now = new Date();
+      if (now < new Date(consultation.start_date)) {
+        throw new ForbiddenException('La votación aún no ha comenzado');
+      }
+      if (now > new Date(consultation.end_date)) {
+        throw new ForbiddenException('La votación ha finalizado');
+      }
+
+      const option = await client.query(
+        `SELECT 1 FROM consultation_options WHERE id = $1 AND consultation_id = $2`,
+        [dto.optionId, id],
+      );
+      if (option.rows.length === 0) throw new BadRequestException('Opción inválida');
+
+      const elector = await client.query(
+        `SELECT 1 FROM consultation_electors
+         WHERE consultation_id = $1 AND property_unit_id = $2 AND user_id = $3`,
+        [id, dto.propertyUnitId, user.id],
+      );
+      if (elector.rows.length === 0) {
+        throw new ForbiddenException('No estás habilitado para votar por esta unidad');
+      }
+
+      const previous = await client.query(
+        `SELECT 1 FROM consultation_votes WHERE consultation_id = $1 AND property_unit_id = $2`,
+        [id, dto.propertyUnitId],
+      );
+      if (previous.rows.length > 0) {
+        throw new ConflictException('Esta unidad ya emitió su voto');
+      }
+
+      const unit = await client.query(
+        `SELECT unit_code, aliquot_percentage FROM property_units WHERE id = $1`,
+        [dto.propertyUnitId],
+      );
+      if (unit.rows.length === 0) throw new BadRequestException('Unidad inválida');
+
+      const verificationCode = randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase();
+
+      const inserted = await client.query(
+        `INSERT INTO consultation_votes (
+           consultation_id, consultation_option_id, property_unit_id, user_id,
+           aliquot_applied, ip_address, user_agent, verification_code
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, voted_at`,
+        [
+          id,
+          dto.optionId,
+          dto.propertyUnitId,
+          user.id,
+          unit.rows[0].aliquot_percentage,
+          meta.ip ?? null,
+          meta.userAgent ?? null,
+          verificationCode,
+        ],
+      );
+      const vote = inserted.rows[0];
+
+      await client.query(
+        `INSERT INTO audit_logs (condo_id, user_id, action, entity_name, entity_id, new_values)
+         VALUES ($1, $2, 'CONSULTATION_VOTED', 'consultation_votes', $3, $4)`,
+        [
+          consultation.condo_id,
+          user.id,
+          vote.id,
+          JSON.stringify({
+            consultationId: id,
+            propertyUnitId: dto.propertyUnitId,
+            optionId: dto.optionId,
+          }),
+        ],
+      );
+
+      await client.query('COMMIT');
+      return {
+        voteId: vote.id,
+        verificationCode,
+        optionId: dto.optionId,
+        unitCode: unit.rows[0].unit_code,
+        votedAt: vote.voted_at,
+      };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      // Carrera entre la verificación previa y el INSERT: la BD gana con la
+      // restricción única por unidad.
+      if ((error as any)?.code === '23505') {
+        throw new ConflictException('Esta unidad ya emitió su voto');
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Unidades del padrón asignadas al usuario en esta consulta, con su estado de
+   * votación, para que la interfaz muestre qué puede votar y qué ya votó.
+   */
+  async getEligibility(user: any, id: string): Promise<{ units: EligibilityUnit[] }> {
+    const consultation = await this.db.query(`SELECT id FROM consultations WHERE id = $1`, [id]);
+    if (consultation.rows.length === 0) throw new NotFoundException('Consulta no encontrada');
+
+    const res = await this.db.query(
+      `SELECT ce.property_unit_id AS "propertyUnitId",
+              pu.unit_code AS "unitCode",
+              v.consultation_option_id AS "votedOptionId"
+       FROM consultation_electors ce
+       JOIN property_units pu ON pu.id = ce.property_unit_id
+       LEFT JOIN consultation_votes v
+         ON v.consultation_id = ce.consultation_id
+        AND v.property_unit_id = ce.property_unit_id
+       WHERE ce.consultation_id = $1 AND ce.user_id = $2
+       ORDER BY pu.unit_code ASC`,
+      [id, user.id],
+    );
+
+    return {
+      units: res.rows.map((r) => ({
+        propertyUnitId: r.propertyUnitId,
+        unitCode: r.unitCode,
+        alreadyVoted: r.votedOptionId !== null,
+        votedOptionId: r.votedOptionId,
+      })),
+    };
   }
 
   async listElectors(

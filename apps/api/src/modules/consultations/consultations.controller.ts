@@ -16,6 +16,7 @@ import { SuperAdminGuard } from '../users/guards/super-admin.guard';
 import { AddElectorDto } from './dto/add-elector.dto';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
+import { VoteDto } from './dto/vote.dto';
 import { ConsultationMemberGuard } from './guards/consultation-member.guard';
 import { ConsultationsService } from './consultations.service';
 
@@ -57,6 +58,23 @@ export class ConsultationsController {
   @ApiOperation({ summary: 'Publica la consulta y congela el padrón (solo Super Administrador)' })
   publish(@Request() req, @Param('id') id: string) {
     return this.service.publish(req.user, id);
+  }
+
+  @Get(':id/my-eligibility')
+  @UseGuards(ConsultationMemberGuard)
+  @ApiOperation({ summary: 'Unidades del padrón del usuario y su estado de votación' })
+  eligibility(@Request() req, @Param('id') id: string) {
+    return this.service.getEligibility(req.user, id);
+  }
+
+  @Post(':id/vote')
+  @UseGuards(ConsultationMemberGuard)
+  @ApiOperation({ summary: 'Emite el voto de una unidad y devuelve el comprobante' })
+  vote(@Request() req, @Param('id') id: string, @Body() dto: VoteDto) {
+    return this.service.vote(req.user, id, dto, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
   }
 
   @Get(':id/electors')
