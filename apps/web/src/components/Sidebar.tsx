@@ -38,6 +38,7 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps)
     : [
         { id: 'community', label: 'Dashboard General', icon: LayoutDashboard },
         { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
+        { id: 'access', label: 'Visitas, Garita y Paquetes', icon: QrCode },
         { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
       ];
 

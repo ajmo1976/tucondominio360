@@ -203,7 +203,7 @@ export default function Home() {
 
         <main className="flex-1 p-6 md:p-8 max-w-7xl mx-auto w-full">
           {/* Sin residencia cargada no se pinta ninguna vista de datos. */}
-          {!selectedCondo.id && currentTab !== 'access' && currentTab !== 'my-bills' && currentTab !== 'users' && (
+          {!selectedCondo.id && currentTab !== 'my-bills' && currentTab !== 'users' && (
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-10 text-center">
               <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
               <h2 className="font-bold text-slate-800">No hay una residencia seleccionada</h2>
@@ -267,8 +267,8 @@ export default function Home() {
             />
           )}
 
-          {currentTab === 'access' && (
-            <AccessView />
+          {selectedCondo.id && currentTab === 'access' && (
+            <AccessView condoId={selectedCondo.id} />
           )}
 
           {/* Portal del Propietario: recibos en todas sus residencias */}
