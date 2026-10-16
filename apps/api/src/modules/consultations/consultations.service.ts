@@ -12,6 +12,7 @@ import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
 import { VoteDto } from './dto/vote.dto';
 import { computeConsultationTally, TallyResult } from './tally';
+import { buildActaPdf, buildVoteReceiptPdf } from './pdf';
 
 // Semántica de `result` (Ruling R3): APPROVED = decisión tomada (existe opción
 // mayoritaria por unidades), no "el sí ganó"; TIED = empate (sin decisión);
@@ -465,30 +466,48 @@ export class ConsultationsService {
       throw new NotFoundException('Consulta no encontrada');
     }
 
-    let tally: TallyResult;
-    if (consultation.result_snapshot) {
-      tally = consultation.result_snapshot as TallyResult;
-    } else {
-      const optionsRes = await this.db.query(
-        `SELECT id, title, position FROM consultation_options
-         WHERE consultation_id = $1
-         ORDER BY position ASC`,
-        [id],
-      );
-      const votesRes = await this.db.query(
-        `SELECT consultation_option_id, aliquot_applied FROM consultation_votes
-         WHERE consultation_id = $1`,
-        [id],
-      );
-      tally = computeConsultationTally(
-        optionsRes.rows.map((o) => ({ id: o.id, title: o.title, position: o.position })),
-        votesRes.rows.map((v) => ({
-          optionId: v.consultation_option_id,
-          aliquot: Number(v.aliquot_applied),
-        })),
-      );
-    }
+    const tally = await this.computeTally(id, consultation.result_snapshot as TallyResult | null);
+    const votes = await this.loadPublicVotes(id);
 
+    return {
+      tally,
+      votes,
+      closed: consultation.status === 'CLOSED' || consultation.status === 'CANCELLED',
+      result: consultation.result ?? null,
+    };
+  }
+
+  /**
+   * Calcula el recuento congelado (`result_snapshot`) o, si no existe, lo computa
+   * en vivo desde los votos emitidos (misma decisión por unidades).
+   */
+  private async computeTally(id: string, snapshot: TallyResult | null): Promise<TallyResult> {
+    if (snapshot) return snapshot;
+
+    const optionsRes = await this.db.query(
+      `SELECT id, title, position FROM consultation_options
+       WHERE consultation_id = $1
+       ORDER BY position ASC`,
+      [id],
+    );
+    const votesRes = await this.db.query(
+      `SELECT consultation_option_id, aliquot_applied FROM consultation_votes
+       WHERE consultation_id = $1`,
+      [id],
+    );
+    return computeConsultationTally(
+      optionsRes.rows.map((o) => ({ id: o.id, title: o.title, position: o.position })),
+      votesRes.rows.map((v) => ({
+        optionId: v.consultation_option_id,
+        aliquot: Number(v.aliquot_applied),
+      })),
+    );
+  }
+
+  /** Votos públicos de la consulta (unidad, votante, opción y fecha) para verificabilidad. */
+  private async loadPublicVotes(
+    id: string,
+  ): Promise<Array<{ unitCode: string; voter: string; optionId: string; votedAt: string }>> {
     const votesRes = await this.db.query(
       `SELECT pu.unit_code AS "unitCode",
               CONCAT(u.first_name, ' ', u.last_name) AS voter,
@@ -502,17 +521,117 @@ export class ConsultationsService {
       [id],
     );
 
-    return {
+    return votesRes.rows.map((v) => ({
+      unitCode: v.unitCode,
+      voter: v.voter,
+      optionId: v.optionId,
+      votedAt: v.votedAt instanceof Date ? v.votedAt.toISOString() : v.votedAt,
+    }));
+  }
+
+  /**
+   * Acta de la consulta en PDF. Solo está disponible una vez cerrada o cancelada
+   * (antes → 400). Una consulta cancelada no tiene `result_snapshot`: se rotula
+   * `CANCELADA` y se omite el recuento (R4), sin fallar por el snapshot nulo.
+   */
+  async buildActa(id: string): Promise<Buffer> {
+    const res = await this.db.query(
+      `SELECT c.title, c.description, c.consultation_type, c.status,
+              c.start_date, c.end_date, c.result_snapshot, c.minutes_document_url,
+              co.name AS condo_name
+       FROM consultations c
+       JOIN condos co ON co.id = c.condo_id
+       WHERE c.id = $1`,
+      [id],
+    );
+    if (res.rows.length === 0) throw new NotFoundException('Consulta no encontrada');
+
+    const consultation = res.rows[0];
+    if (consultation.status !== 'CLOSED' && consultation.status !== 'CANCELLED') {
+      throw new BadRequestException('El acta estará disponible al cerrar la consulta');
+    }
+
+    const snapshot = (consultation.result_snapshot as TallyResult | null) ?? null;
+    const tally = await this.computeTally(id, snapshot);
+    const votes = await this.loadPublicVotes(id);
+
+    const padrón = await this.db.query(
+      `SELECT COUNT(DISTINCT property_unit_id)::int AS count
+       FROM consultation_electors
+       WHERE consultation_id = $1`,
+      [id],
+    );
+
+    const optionTitleById = new Map(tally.options.map((o) => [o.optionId, o.title]));
+    const winnerTitle = tally.winnerOptionId
+      ? optionTitleById.get(tally.winnerOptionId) ?? null
+      : null;
+
+    return buildActaPdf({
+      condoName: consultation.condo_name,
+      consultationType: consultation.consultation_type,
+      title: consultation.title,
+      description: consultation.description,
+      startDate: consultation.start_date,
+      endDate: consultation.end_date,
+      status: consultation.status,
+      result: consultation.status === 'CANCELLED' ? null : tally.result,
+      winnerTitle: consultation.status === 'CANCELLED' ? null : winnerTitle,
       tally,
-      votes: votesRes.rows.map((v) => ({
-        unitCode: v.unitCode,
-        voter: v.voter,
-        optionId: v.optionId,
-        votedAt: v.votedAt instanceof Date ? v.votedAt.toISOString() : v.votedAt,
+      padrónUnits: padrón.rows[0].count,
+      votes: votes.map((vote) => ({
+        unitCode: vote.unitCode,
+        voter: vote.voter,
+        optionTitle: optionTitleById.get(vote.optionId) ?? '—',
+        votedAt: vote.votedAt,
       })),
-      closed: consultation.status === 'CLOSED' || consultation.status === 'CANCELLED',
-      result: consultation.result ?? null,
-    };
+      minutesDocumentUrl: consultation.minutes_document_url ?? null,
+    });
+  }
+
+  /**
+   * Constancia PDF del voto de una unidad. El voto debe existir; solo puede
+   * descargarlo su emisor o el Super Administrador (si no → 404, sin filtrar
+   * la existencia de votos ajenos).
+   */
+  async buildReceipt(id: string, propertyUnitId: string, user: any): Promise<Buffer> {
+    if (!propertyUnitId) throw new NotFoundException('Voto no encontrado');
+
+    const res = await this.db.query(
+      `SELECT v.user_id, v.verification_code, v.voted_at, v.aliquot_applied,
+              pu.unit_code,
+              CONCAT(u.first_name, ' ', u.last_name) AS voter,
+              o.title AS option_title,
+              c.title AS consultation_title,
+              c.consultation_type,
+              co.name AS condo_name
+       FROM consultation_votes v
+       JOIN property_units pu ON pu.id = v.property_unit_id
+       JOIN users u ON u.id = v.user_id
+       JOIN consultation_options o ON o.id = v.consultation_option_id
+       JOIN consultations c ON c.id = v.consultation_id
+       JOIN condos co ON co.id = c.condo_id
+       WHERE v.consultation_id = $1 AND v.property_unit_id = $2`,
+      [id, propertyUnitId],
+    );
+    if (res.rows.length === 0) throw new NotFoundException('Voto no encontrado');
+
+    const vote = res.rows[0];
+    if (!user.is_superadmin && vote.user_id !== user.id) {
+      throw new NotFoundException('Voto no encontrado');
+    }
+
+    return buildVoteReceiptPdf({
+      condoName: vote.condo_name,
+      consultationTitle: vote.consultation_title,
+      consultationType: vote.consultation_type,
+      unitCode: vote.unit_code,
+      voter: vote.voter,
+      optionTitle: vote.option_title,
+      votedAt: vote.voted_at,
+      verificationCode: vote.verification_code,
+      aliquotPercentage: vote.aliquot_applied,
+    });
   }
 
   /**

@@ -8,8 +8,10 @@ import {
   Post,
   Query,
   Request,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SuperAdminGuard } from '../users/guards/super-admin.guard';
@@ -117,5 +119,36 @@ export class ConsultationsController {
   @ApiOperation({ summary: 'Elimina un habilitado del padrón (solo Super Administrador)' })
   removeElector(@Request() req, @Param('id') id: string, @Param('electorId') electorId: string) {
     return this.service.removeElector(req.user, id, electorId);
+  }
+
+  @Get(':id/acta.pdf')
+  @UseGuards(ConsultationMemberGuard)
+  @ApiOperation({ summary: 'Descarga PDF: acta de la consulta (tras el cierre o cancelación)' })
+  async acta(@Request() req, @Param('id') id: string, @Res() res: Response) {
+    const buffer = await this.service.buildActa(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'attachment; filename="acta-consulta.pdf"',
+      'Content-Length': buffer.length,
+    });
+    res.send(buffer);
+  }
+
+  @Get(':id/receipt.pdf')
+  @UseGuards(ConsultationMemberGuard)
+  @ApiOperation({ summary: 'Descarga PDF: constancia de votación de una unidad (solo su propietario)' })
+  async receipt(
+    @Request() req,
+    @Param('id') id: string,
+    @Query('propertyUnitId') propertyUnitId: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.service.buildReceipt(id, propertyUnitId, req.user);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'attachment; filename="constancia-voto.pdf"',
+      'Content-Length': buffer.length,
+    });
+    res.send(buffer);
   }
 }

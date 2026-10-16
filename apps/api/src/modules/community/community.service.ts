@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
-import { PdfBuilder, pdfMoney, pdfDate } from './pdf';
+import { PdfBuilder, pdfMoney, pdfDate } from '../../common/pdf';
 
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
