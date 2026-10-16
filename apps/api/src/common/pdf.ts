@@ -210,8 +210,17 @@ export class PdfBuilder {
     }
 
     // 3. Título principal del documento y código de referencia oficial
-    this.drawLineAtTop(this.header.title, MARGIN, this.current.y, {
-      size: ROOT_STYLES.title,
+    const refW = this.header.documentRef
+      ? measureTextWidth(this.header.documentRef, 8.5, true) + 16
+      : 0;
+    const maxTitleW = Math.max(200, USABLE - refW);
+    let titleSize = ROOT_STYLES.title;
+    if (measureTextWidth(this.header.title, titleSize, true) > maxTitleW) {
+      titleSize = 12.5;
+    }
+    const safeTitle = clipTextToWidth(this.header.title, maxTitleW, titleSize, true);
+    this.drawLineAtTop(safeTitle, MARGIN, this.current.y, {
+      size: titleSize,
       bold: true,
       color: '0.06 0.09 0.16',
     });

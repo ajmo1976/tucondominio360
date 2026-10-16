@@ -103,10 +103,10 @@ export class AmenitiesService {
                     SELECT 1 FROM condo_bills cb
                     WHERE cb.property_unit_id = pu.id
                       AND cb.status IN ('UNPAID', 'PARTIALLY_PAID', 'OVERDUE')
-                      AND (cb.total_amount_usd - cb.total_paid_usd) > 0.004
+                      AND cb.remaining_balance_usd > 0.004
                   ) AS "hasOverdueBills",
                   COALESCE((
-                    SELECT SUM(GREATEST(cb.total_amount_usd - cb.total_paid_usd, 0))
+                    SELECT SUM(GREATEST(cb.remaining_balance_usd, 0))
                     FROM condo_bills cb
                     WHERE cb.property_unit_id = pu.id
                       AND cb.status IN ('UNPAID', 'PARTIALLY_PAID', 'OVERDUE')
@@ -123,10 +123,10 @@ export class AmenitiesService {
                     SELECT 1 FROM condo_bills cb
                     WHERE cb.property_unit_id = pu.id
                       AND cb.status IN ('UNPAID', 'PARTIALLY_PAID', 'OVERDUE')
-                      AND (cb.total_amount_usd - cb.total_paid_usd) > 0.004
+                      AND cb.remaining_balance_usd > 0.004
                   ) AS "hasOverdueBills",
                   COALESCE((
-                    SELECT SUM(GREATEST(cb.total_amount_usd - cb.total_paid_usd, 0))
+                    SELECT SUM(GREATEST(cb.remaining_balance_usd, 0))
                     FROM condo_bills cb
                     WHERE cb.property_unit_id = pu.id
                       AND cb.status IN ('UNPAID', 'PARTIALLY_PAID', 'OVERDUE')

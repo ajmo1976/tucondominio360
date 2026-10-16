@@ -93,7 +93,7 @@ export function buildReservationVoucherPdf(data: ReservationVoucherPdfData): Buf
   const statusLabel = STATUS_LABELS[data.status] ?? data.status;
 
   const doc = new PdfBuilder({
-    title: 'ACUERDO Y CONSTANCIA DE RESERVA DE ÁREA COMÚN',
+    title: 'CONSTANCIA OFICIAL DE RESERVA DE ÁREA COMÚN',
     subtitle: `${data.amenityName} (${categoryLabel}) · Inmueble ${data.unitCode}`,
     condoName: data.condoName,
     condoRif: data.condoRif ?? undefined,
@@ -222,28 +222,28 @@ export function buildReservationsReportPdf(data: ReservationsReportPdfData): Buf
   if (data.rows.length > 0) {
     doc.table(
       [
-        { label: 'Código', width: 78, align: 'left' },
-        { label: 'Espacio Común', width: 120, align: 'left' },
-        { label: 'Unidad', width: 52, align: 'left' },
-        { label: 'Fecha y Horario', width: 108, align: 'left' },
-        { label: 'Estado', width: 82, align: 'left' },
-        { label: 'Total (USD)', width: 84, align: 'right' },
+        { label: 'Código Reserva', width: 106, align: 'left' },
+        { label: 'Espacio Común', width: 112, align: 'left' },
+        { label: 'Unidad', width: 48, align: 'left' },
+        { label: 'Fecha y Horario', width: 118, align: 'left' },
+        { label: 'Estado', width: 68, align: 'left' },
+        { label: 'Total (USD)', width: 72, align: 'right' },
       ],
       data.rows.map((r) => [
         r.reservationCode,
         r.amenityName,
         `Apto ${r.unitCode}`,
-        `${pdfDate(r.reservationDate)} · ${r.timeSlot}`,
+        `${pdfDate(r.reservationDate)} ${r.timeSlot}`,
         r.status,
         `$${pdfMoney(r.totalAmountUsd)}`,
       ]),
       {
         footerRow: [
-          'TOTALES',
+          'TOTALES DEL PERÍODO',
           `${data.totalReservations} reservas`,
           `${data.approvedCount} aprob.`,
           '—',
-          'INGRESOS NETOS:',
+          'INGRESOS:',
           `$${pdfMoney(data.totalRevenueUsd)}`,
         ],
       },
