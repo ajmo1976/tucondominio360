@@ -16,6 +16,7 @@ import { CommunityDashboard } from '../components/CommunityDashboard';
 import { UsersView } from '../components/UsersView';
 import { ConsultationsAdminView } from '../components/ConsultationsAdminView';
 import { ConsultationsOwnerView } from '../components/ConsultationsOwnerView';
+import { AmenitiesView } from '../components/AmenitiesView';
 import { ProfileModal } from '../components/ProfileModal';
 import { CondoSelectorModal } from '../components/CondoSelectorModal';
 import { BankAccountsModal } from '../components/BankAccountsModal';
@@ -269,6 +270,10 @@ export default function Home() {
 
           {selectedCondo.id && currentTab === 'access' && (
             <AccessView condoId={selectedCondo.id} />
+          )}
+
+          {selectedCondo.id && currentTab === 'amenities' && (
+            <AmenitiesView condoId={selectedCondo.id} />
           )}
 
           {/* Portal del Propietario: recibos en todas sus residencias */}
