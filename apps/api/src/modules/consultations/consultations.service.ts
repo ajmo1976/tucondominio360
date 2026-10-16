@@ -400,6 +400,46 @@ export class ConsultationsService {
   }
 
   /**
+   * Cancela una consulta en borrador o publicada. La consulta queda cerrada y
+   * auditada; los votos ya emitidos se conservan (trazabilidad).
+   */
+  async cancel(user: any, id: string, reason?: string): Promise<{ ok: true }> {
+    const client = await this.db.getClient();
+    try {
+      await client.query('BEGIN');
+
+      const res = await client.query(`SELECT condo_id, status FROM consultations WHERE id = $1 FOR UPDATE`, [
+        id,
+      ]);
+      if (res.rows.length === 0) throw new NotFoundException('Consulta no encontrada');
+
+      const consultation = res.rows[0];
+      if (consultation.status === 'CLOSED' || consultation.status === 'CANCELLED') {
+        throw new BadRequestException('La consulta ya está cerrada o cancelada');
+      }
+
+      await client.query(
+        `UPDATE consultations SET status = 'CANCELLED', closed_at = NOW(), closed_by_user_id = $2 WHERE id = $1`,
+        [id, user.id],
+      );
+
+      await client.query(
+        `INSERT INTO audit_logs (condo_id, user_id, action, entity_name, entity_id, new_values)
+         VALUES ($1, $2, 'CONSULTATION_CANCELLED', 'consultations', $3, $4)`,
+        [consultation.condo_id, user.id, id, JSON.stringify({ reason: reason ?? null })],
+      );
+
+      await client.query('COMMIT');
+      return { ok: true };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Resultados de la consulta: recuento en vivo mientras está `PUBLISHED`, o el
    * `result_snapshot` congelado al cerrar. Los votos se exponen públicamente
    * (unidad, votante, opción y fecha) — no hay voto secreto. Un no-superadmin no

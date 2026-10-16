@@ -39,6 +39,13 @@ export class ConsultationsController {
     return this.service.listForUser(req.user, condoId);
   }
 
+  @Post(':id/cancel')
+  @UseGuards(SuperAdminGuard)
+  @ApiOperation({ summary: 'Cancela una consulta con auditoría (solo Super Administrador)' })
+  cancel(@Request() req, @Param('id') id: string, @Body() body: { reason?: string }) {
+    return this.service.cancel(req.user, id, body?.reason);
+  }
+
   @Get(':id')
   @UseGuards(ConsultationMemberGuard)
   @ApiOperation({ summary: 'Detalle de una consulta con sus opciones y votos' })
