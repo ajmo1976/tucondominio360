@@ -32,6 +32,7 @@ export class AuthController {
   @Post('login')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200)
   @ApiOperation({ summary: 'Iniciar sesión (JWT)' })
   @ApiResponse({ status: 200, description: 'Sesión iniciada con éxito y retorna token JWT' })
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })

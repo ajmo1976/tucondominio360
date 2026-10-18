@@ -59,7 +59,7 @@ export class MailService {
     return { mode: 'log', preview: html };
   }
 
-  /** Enlace público de la app (para construir los enlaces de los correos). */
+  /** Envía el correo de invitación con el enlace para activar la cuenta. */
   async sendInvitation(to: string, link: string) {
     const { subject, html } = invitationEmail(link);
     return this.send(to, subject, html);
