@@ -14,6 +14,7 @@ import { AccessModule } from './modules/access/access.module';
 import { AmenitiesModule } from './modules/amenities/amenities.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
+import { MailModule } from './modules/mail/mail.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { AnnouncementsModule } from './modules/announcements/announcements.modul
     AmenitiesModule,
     MaintenanceModule,
     AnnouncementsModule,
+    MailModule,
   ],
   controllers: [AppController],
 })
