@@ -56,6 +56,18 @@ export class UsersController {
     return this.usersService.update(id, dto);
   }
 
+  @Post(':id/invitation/resend')
+  @ApiOperation({ summary: 'Reenviar la invitación por correo a un usuario que aún no activó su cuenta' })
+  async resendInvitation(@Param('id') id: string) {
+    return this.usersService.resendInvitation(id);
+  }
+
+  @Post(':id/invitation/revoke')
+  @ApiOperation({ summary: 'Anular las invitaciones pendientes de un usuario' })
+  async revokeInvitation(@Param('id') id: string) {
+    return this.usersService.revokeInvitation(id);
+  }
+
   @Post(':id/reset-password')
   @ApiOperation({ summary: 'Restablecer la contraseña de un usuario desde la administración' })
   async resetPassword(@Param('id') id: string, @Body() dto: ResetPasswordDto) {

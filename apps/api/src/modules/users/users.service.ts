@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { DatabaseService } from '../../database/database.service';
+import { TokensService } from '../auth/tokens.service';
+import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
@@ -26,7 +28,11 @@ const USER_HISTORY_CHECKS: Array<{ column: string; table: string; label: string 
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly tokens: TokensService,
+    private readonly mail: MailService,
+  ) {}
 
   /** Lista de usuarios con residencias y unidades asignadas (para el módulo de administración). */
   async list(search = '') {
@@ -346,7 +352,13 @@ export class UsersService {
     };
   }
 
-  /** Crea un usuario (con hash bcrypt) y sus asignaciones de residencias/unidades. */
+  /**
+   * Crea un usuario y sus asignaciones de residencias/unidades.
+   *
+   * Si llega `password`, la cuenta queda activa con correo verificado. Si no,
+   * se crea sin contraseña (`password_hash = NULL`) y se envía una invitación
+   * por correo para que el usuario defina su clave o entre con Google.
+   */
   async create(dto: CreateUserDto) {
     const email = dto.email.trim().toLowerCase();
     const dup = await this.db.query(`SELECT id FROM users WHERE LOWER(email) = $1`, [email]);
@@ -354,24 +366,26 @@ export class UsersService {
       throw new ConflictException('Ya existe un usuario con ese correo electrónico');
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const hasPassword = !!dto.password;
+    const passwordHash = hasPassword ? await bcrypt.hash(dto.password as string, 10) : null;
     const client = await this.db.getClient();
     try {
       await client.query('BEGIN');
       const userRes = await client.query(
-        `INSERT INTO users (email, password_hash, first_name, last_name, doc_type, doc_number, phone, is_active, is_superadmin)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO users (email, password_hash, first_name, last_name, doc_type, doc_number, phone, is_active, is_superadmin, email_verified_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id`,
         [
           email,
           passwordHash,
           dto.firstName.trim(),
           dto.lastName.trim(),
-          dto.docType,
-          dto.docNumber.trim(),
+          dto.docType ?? 'V',
+          dto.docNumber?.trim() ?? null,
           dto.phone || null,
           dto.isActive ?? true,
           dto.isSuperadmin ?? false,
+          hasPassword ? new Date() : null,
         ],
       );
       const userId = userRes.rows[0].id;
@@ -396,7 +410,14 @@ export class UsersService {
       }
 
       await client.query('COMMIT');
-      return this.findOne(userId);
+
+      const detail = await this.findOne(userId);
+      if (!hasPassword) {
+        const token = await this.tokens.issue(userId, 'INVITATION', email);
+        await this.mail.sendInvitation(email, `${this.appBaseUrl()}/accept-invite?token=${token}`);
+        return { ...detail, invitationSent: true, emailVerified: false };
+      }
+      return { ...detail, invitationSent: false, emailVerified: true };
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
       if (err?.code === '23505') {
@@ -406,6 +427,45 @@ export class UsersService {
     } finally {
       client.release();
     }
+  }
+
+  /** URL base pública de la web, para armar los enlaces de los correos. */
+  private appBaseUrl(): string {
+    return process.env.APP_URL ?? process.env.WEB_APP_URL ?? 'http://localhost:3000';
+  }
+
+  /**
+   * Reenvía la invitación a un usuario que aún no activó su cuenta. Se niega si
+   * el correo ya está verificado (en ese caso corresponde el reseteo de clave).
+   */
+  async resendInvitation(id: string) {
+    const res = await this.db.query(
+      `SELECT id, email, email_verified_at FROM users WHERE id = $1`,
+      [id],
+    );
+    if (res.rows.length === 0) throw new NotFoundException('Usuario no encontrado');
+    const user = res.rows[0] as { email: string; email_verified_at: string | null };
+    if (user.email_verified_at) {
+      throw new BadRequestException('El usuario ya activó su cuenta');
+    }
+
+    const token = await this.tokens.issue(id, 'INVITATION', user.email);
+    await this.mail.sendInvitation(user.email, `${this.appBaseUrl()}/accept-invite?token=${token}`);
+    return { sent: true };
+  }
+
+  /** Anula las invitaciones pendientes de un usuario. */
+  async revokeInvitation(id: string) {
+    const exists = await this.db.query(`SELECT id FROM users WHERE id = $1`, [id]);
+    if (exists.rows.length === 0) throw new NotFoundException('Usuario no encontrado');
+
+    const res = await this.db.query(
+      `DELETE FROM auth_tokens
+        WHERE user_id = $1 AND purpose = 'INVITATION' AND consumed_at IS NULL
+        RETURNING id`,
+      [id],
+    );
+    return { revoked: res.rows.length > 0 };
   }
 
   /**

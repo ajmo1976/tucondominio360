@@ -67,19 +67,24 @@ export class CreateUserDto {
   @IsEmail({}, { message: 'El correo electrónico no es válido' })
   email: string;
 
-  @ApiProperty({ example: 'clave123', description: 'Contraseña inicial que el usuario podrá cambiar luego' })
+  @ApiPropertyOptional({
+    example: 'clave123',
+    description:
+      'Contraseña inicial. Si se omite, se crea la cuenta y se envía una invitación por correo para que el usuario la defina.',
+  })
+  @IsOptional()
   @IsString()
   @MinLength(6, { message: 'La contraseña debe tener al menos 6 caracteres' })
-  password: string;
+  password?: string;
 
   @ApiProperty({ enum: DOC_TYPES, default: 'V' })
   @IsIn(DOC_TYPES)
   docType: string = 'V';
 
-  @ApiProperty({ example: '18456123' })
+  @ApiPropertyOptional({ example: '18456123', description: 'Opcional si se invita solo por correo' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'El documento de identidad es requerido' })
-  docNumber: string;
+  docNumber?: string;
 
   @ApiPropertyOptional({ example: '+584120000000' })
   @IsOptional()
