@@ -12,6 +12,7 @@ import { UsersModule } from './modules/users/users.module';
 import { CommunityModule } from './modules/community/community.module';
 import { ConsultationsModule } from './modules/consultations/consultations.module';
 import { AccessModule } from './modules/access/access.module';
+import { AccessCoreModule } from './modules/access-core/access.module';
 import { AmenitiesModule } from './modules/amenities/amenities.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
@@ -27,6 +28,7 @@ import { MailModule } from './modules/mail/mail.module';
     // Las rutas sensibles (login, forgot, resend) llevan su propio @Throttle.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 10 }]),
     DatabaseModule,
+    AccessCoreModule,
     AuthModule,
     CondosModule,
     BillingModule,
