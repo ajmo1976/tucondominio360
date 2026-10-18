@@ -175,19 +175,49 @@ CREATE TABLE tenants (
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(120) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),                       -- NULL: cuenta solo-Google o invitación pendiente
     first_name VARCHAR(80) NOT NULL,
     last_name VARCHAR(80) NOT NULL,
     doc_type document_type NOT NULL DEFAULT 'V',
-    doc_number VARCHAR(20) NOT NULL,
+    doc_number VARCHAR(20),                           -- NULL permitido para invitar solo con correo
     phone VARCHAR(30),
     avatar_url TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_superadmin BOOLEAN NOT NULL DEFAULT FALSE,
+    email_verified_at TIMESTAMPTZ,
+    last_login_at TIMESTAMPTZ,
+    token_version INT NOT NULL DEFAULT 0,             -- invalida JWT al cambiar/resetear contraseña
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_user_document UNIQUE (doc_type, doc_number)
 );
+
+-- Identidades de acceso por usuario (LOCAL, GOOGLE, ...)
+CREATE TABLE user_identities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(20) NOT NULL,                    -- 'LOCAL' | 'GOOGLE'
+    provider_user_id VARCHAR(255),                    -- 'sub' de Google; NULL para LOCAL
+    email_at_provider VARCHAR(120),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    CONSTRAINT uq_identity_provider UNIQUE (provider, provider_user_id)
+);
+CREATE INDEX idx_user_identities_user ON user_identities(user_id);
+
+-- Tokens de autenticación de un solo uso (invitación, verificación, reseteo)
+CREATE TABLE auth_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose VARCHAR(30) NOT NULL,                     -- 'INVITATION' | 'EMAIL_VERIFICATION' | 'PASSWORD_RESET'
+    token_hash VARCHAR(64) NOT NULL,                  -- sha256 hex del token en claro
+    email VARCHAR(120) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_auth_token_hash UNIQUE (token_hash)
+);
+CREATE INDEX idx_auth_tokens_user ON auth_tokens(user_id, purpose);
 
 CREATE TABLE tenant_users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
