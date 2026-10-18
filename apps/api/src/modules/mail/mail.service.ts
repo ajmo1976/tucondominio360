@@ -60,10 +60,6 @@ export class MailService {
   }
 
   /** Enlace público de la app (para construir los enlaces de los correos). */
-  appUrl(): string {
-    return process.env.APP_URL ?? 'http://localhost:3000';
-  }
-
   async sendInvitation(to: string, link: string) {
     const { subject, html } = invitationEmail(link);
     return this.send(to, subject, html);

@@ -1,9 +1,23 @@
-import { Controller, Post, Body, Get, Patch, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Patch,
+  UseGuards,
+  Request,
+  Query,
+  Res,
+  HttpCode,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
+import { EmailOnlyDto } from './dto/email-only.dto';
 
 @ApiTags('Autenticación')
 @Controller('auth')
@@ -16,6 +30,31 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post('email/verify')
+  @ApiOperation({ summary: 'Verificar el correo electrónico con el token recibido' })
+  async verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto.token);
+  }
+
+  @Get('email/verify')
+  @ApiOperation({ summary: 'Verificar el correo desde el enlace del correo (redirige a la web)' })
+  async verifyEmailRedirect(@Query('token') token: string, @Res() res: Response) {
+    const base = process.env.APP_URL ?? process.env.WEB_APP_URL ?? 'http://localhost:3000';
+    try {
+      await this.authService.verifyEmail(token);
+      return res.redirect(`${base}/verify-email?status=ok`);
+    } catch {
+      return res.redirect(`${base}/verify-email?status=error`);
+    }
+  }
+
+  @Post('email/resend')
+  @HttpCode(202)
+  @ApiOperation({ summary: 'Reenviar el correo de verificación (respuesta uniforme, no revela si existe)' })
+  async resendVerification(@Body() dto: EmailOnlyDto) {
+    return this.authService.resendVerification(dto.email);
   }
 
   @Get('me')

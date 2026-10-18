@@ -1,7 +1,15 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { DatabaseService } from '../../database/database.service';
+import { TokensService } from './tokens.service';
+import { MailService } from '../mail/mail.service';
 import { LoginDto } from './dto/login.dto';
 
 @Injectable()
@@ -9,13 +17,21 @@ export class AuthService {
   constructor(
     private readonly db: DatabaseService,
     private readonly jwtService: JwtService,
+    private readonly tokens: TokensService,
+    private readonly mail: MailService,
   ) {}
+
+  /** URL base pública de la web, para armar los enlaces de los correos. */
+  private appBaseUrl(): string {
+    return process.env.APP_URL ?? process.env.WEB_APP_URL ?? 'http://localhost:3000';
+  }
 
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
 
     const userRes = await this.db.query(
-      `SELECT id, email, password_hash, first_name, last_name, doc_type, doc_number, phone, is_active, is_superadmin
+      `SELECT id, email, password_hash, first_name, last_name, doc_type, doc_number, phone,
+              is_active, is_superadmin, email_verified_at
        FROM users WHERE LOWER(email) = LOWER($1)`,
       [email],
     );
@@ -37,6 +53,14 @@ export class AuthService {
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciales inválidas');
+    }
+
+    // Gating de correo verificado (obligatorio en producción).
+    if (process.env.MAIL_VERIFY_REQUIRED === 'true' && !user.email_verified_at) {
+      throw new ForbiddenException({
+        message: 'Debes verificar tu correo electrónico antes de iniciar sesión',
+        code: 'EMAIL_NOT_VERIFIED',
+      });
     }
 
     // Obtener condominios y roles asociados al usuario
@@ -74,7 +98,8 @@ export class AuthService {
 
   async getProfile(userId: string) {
     const userRes = await this.db.query(
-      `SELECT id, email, first_name, last_name, doc_type, doc_number, phone, is_superadmin, created_at
+      `SELECT id, email, first_name, last_name, doc_type, doc_number, phone, is_superadmin,
+              email_verified_at, created_at
        FROM users WHERE id = $1`,
       [userId],
     );
@@ -91,10 +116,55 @@ export class AuthService {
       [userId],
     );
 
+    const identitiesRes = await this.db.query(
+      `SELECT DISTINCT provider FROM user_identities WHERE user_id = $1 ORDER BY provider`,
+      [userId],
+    );
+
+    const { email_verified_at, ...user } = userRes.rows[0];
+
     return {
-      user: userRes.rows[0],
+      user: {
+        ...user,
+        emailVerified: !!email_verified_at,
+        authProviders: identitiesRes.rows.map((r: any) => r.provider),
+      },
       condos: condosRes.rows,
     };
+  }
+
+  /** Consume un token de verificación y marca el correo como verificado. */
+  async verifyEmail(token: string) {
+    const consumed = await this.tokens.consume(token, 'EMAIL_VERIFICATION');
+    if (!consumed) {
+      throw new BadRequestException('El enlace de verificación no es válido o expiró');
+    }
+    await this.db.query(
+      `UPDATE users SET email_verified_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [consumed.userId],
+    );
+    return { verified: true };
+  }
+
+  /**
+   * Reenvía el correo de verificación. Responde igual exista o no la cuenta y
+   * esté o no verificada, para no filtrar qué correos están registrados.
+   */
+  async resendVerification(email: string) {
+    const res = await this.db.query(
+      `SELECT id, email, email_verified_at FROM users WHERE LOWER(email) = LOWER($1)`,
+      [email],
+    );
+    const user = res.rows[0] as { id: string; email: string; email_verified_at: string | null } | undefined;
+
+    if (user && !user.email_verified_at) {
+      const token = await this.tokens.issue(user.id, 'EMAIL_VERIFICATION', user.email);
+      await this.mail.sendEmailVerification(
+        user.email,
+        `${this.appBaseUrl()}/verify-email?token=${token}`,
+      );
+    }
+    return { sent: true };
   }
 
   async updateProfile(userId: string, data: any) {
