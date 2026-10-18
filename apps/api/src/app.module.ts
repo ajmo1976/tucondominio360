@@ -12,6 +12,8 @@ import { CommunityModule } from './modules/community/community.module';
 import { ConsultationsModule } from './modules/consultations/consultations.module';
 import { AccessModule } from './modules/access/access.module';
 import { AmenitiesModule } from './modules/amenities/amenities.module';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
+import { AnnouncementsModule } from './modules/announcements/announcements.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { AmenitiesModule } from './modules/amenities/amenities.module';
     ConsultationsModule,
     AccessModule,
     AmenitiesModule,
+    MaintenanceModule,
+    AnnouncementsModule,
   ],
   controllers: [AppController],
 })

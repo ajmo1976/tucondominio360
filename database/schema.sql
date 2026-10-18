@@ -833,8 +833,10 @@ CREATE TABLE announcements (
     is_urgent BOOLEAN NOT NULL DEFAULT FALSE,
     requires_acknowledgement BOOLEAN NOT NULL DEFAULT FALSE, -- Acuse de recibo legal
     attachment_urls JSONB NOT NULL DEFAULT '[]',
+    status VARCHAR(20) NOT NULL DEFAULT 'PUBLISHED', -- DRAFT | PUBLISHED | EXPIRED
     published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at TIMESTAMPTZ
+    expires_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE announcement_reads (

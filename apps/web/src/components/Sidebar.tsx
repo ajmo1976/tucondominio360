@@ -13,6 +13,8 @@ import {
   Users,
   Vote,
   CalendarDays,
+  ClipboardList,
+  Megaphone,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -28,6 +30,8 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps)
   const menuItems = isSuperadmin
     ? [
         { id: 'dashboard', label: 'Dashboard General', icon: LayoutDashboard },
+        { id: 'maintenance', label: 'Mantenimiento', icon: ClipboardList },
+        { id: 'announcements', label: 'Cartelera Digital', icon: Megaphone },
         { id: 'expenses', label: 'Gastos y Facturas', icon: FileSpreadsheet },
         { id: 'bills', label: 'Gestación de Recibos', icon: Receipt },
         { id: 'payments', label: 'Conciliación de Pagos', icon: ArrowLeftRight },
@@ -39,8 +43,10 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps)
       ]
     : [
         { id: 'community', label: 'Dashboard General', icon: LayoutDashboard },
+        { id: 'announcements', label: 'Cartelera Digital', icon: Megaphone },
         { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
         { id: 'amenities', label: 'Reserva de Áreas Comunes', icon: CalendarDays },
+        { id: 'maintenance', label: 'Mantenimiento', icon: ClipboardList },
         { id: 'access', label: 'Visitas, Garita y Paquetes', icon: QrCode },
         { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
       ];
@@ -84,14 +90,14 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps)
               <button
                 key={item.id}
                 onClick={() => onTabChange(item.id)}
-                className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition ${
+                className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition ${
                   isActive
                     ? 'bg-emerald-500 text-slate-950 font-semibold shadow-sm'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-slate-950' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-slate-950' : 'text-slate-400'}`} />
+                <span className="flex-1 text-left leading-snug">{item.label}</span>
               </button>
             );
           })}
