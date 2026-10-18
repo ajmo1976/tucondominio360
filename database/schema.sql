@@ -46,6 +46,15 @@ CREATE TYPE condo_role AS ENUM (
     'AUDITOR'           -- Auditor externo
 );
 
+-- Rol del personal de la empresa administradora (tenant). Se combina con el
+-- rol por residencia: los permisos efectivos son la unión de ambos.
+CREATE TYPE tenant_role AS ENUM (
+    'OWNER',            -- Dueño de la administradora
+    'ADMIN',            -- Administra todas las residencias de la cartera
+    'STAFF',            -- Personal operativo
+    'VIEWER'            -- Solo lectura
+);
+
 CREATE TYPE expense_type AS ENUM (
     'COMMON',           -- Gasto común repartido por alícuota a todos
     'NON_COMMON',       -- Gasto no común individual o por torre
@@ -224,9 +233,13 @@ CREATE TABLE tenant_users (
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     is_owner BOOLEAN NOT NULL DEFAULT FALSE,
+    role tenant_role NOT NULL DEFAULT 'STAFF',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_tenant_user UNIQUE (tenant_id, user_id)
 );
+CREATE INDEX idx_tenant_users_user ON tenant_users(user_id);
+CREATE INDEX idx_tenant_users_tenant ON tenant_users(tenant_id);
 
 -- -----------------------------------------------------------------------------
 -- 2. CONDOMINIOS Y ESTRUCTURA INMOBILIARIA
@@ -261,6 +274,7 @@ CREATE TABLE condo_user_access (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role condo_role NOT NULL DEFAULT 'OWNER',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    permissions_override JSONB, -- Overrides puntuales (opcional; sin uso inicial)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_condo_user_role UNIQUE (condo_id, user_id, role)
 );
