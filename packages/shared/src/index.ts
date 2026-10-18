@@ -250,3 +250,6 @@ export interface PaymentReport {
 
 // Identidad y tokens de autenticación
 export * from './auth';
+
+// Permisos efectivos por tenant y residencia
+export * from './permissions';
