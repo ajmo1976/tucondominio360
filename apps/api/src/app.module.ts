@@ -17,6 +17,8 @@ import { AmenitiesModule } from './modules/amenities/amenities.module';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { MailModule } from './modules/mail/mail.module';
+import { TenantsModule } from './modules/tenants/tenants.module';
+import { MeModule } from './modules/me/me.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { MailModule } from './modules/mail/mail.module';
     MaintenanceModule,
     AnnouncementsModule,
     MailModule,
+    TenantsModule,
+    MeModule,
   ],
   controllers: [AppController],
 })
