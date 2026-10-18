@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { DatabaseModule } from './database/database.module';
 import { AppController } from './app.controller';
 import { AuthModule } from './modules/auth/auth.module';
@@ -22,6 +23,9 @@ import { MailModule } from './modules/mail/mail.module';
       isGlobal: true,
       envFilePath: ['.env', '.env.local'],
     }),
+    // Límite por defecto de los endpoints de autenticación (10 req/min por IP).
+    // Las rutas sensibles (login, forgot, resend) llevan su propio @Throttle.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 10 }]),
     DatabaseModule,
     AuthModule,
     CondosModule,

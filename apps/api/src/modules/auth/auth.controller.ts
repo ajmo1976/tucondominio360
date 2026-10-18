@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -29,6 +30,8 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Iniciar sesión (JWT)' })
   @ApiResponse({ status: 200, description: 'Sesión iniciada con éxito y retorna token JWT' })
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
@@ -37,6 +40,8 @@ export class AuthController {
   }
 
   @Post('email/verify')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Verificar el correo electrónico con el token recibido' })
   async verifyEmail(@Body() dto: VerifyEmailDto) {
     return this.authService.verifyEmail(dto.token);
@@ -55,6 +60,8 @@ export class AuthController {
   }
 
   @Post('email/resend')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 900000 } })
   @HttpCode(202)
   @ApiOperation({ summary: 'Reenviar el correo de verificación (respuesta uniforme, no revela si existe)' })
   async resendVerification(@Body() dto: EmailOnlyDto) {
@@ -87,6 +94,8 @@ export class AuthController {
   }
 
   @Post('password/forgot')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 900000 } })
   @HttpCode(202)
   @ApiOperation({ summary: 'Solicitar enlace de reseteo (respuesta uniforme, no revela si existe)' })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
@@ -94,19 +103,24 @@ export class AuthController {
   }
 
   @Post('password/reset')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Definir nueva contraseña con el token recibido por correo' })
   async resetPassword(@Body() dto: ResetPasswordTokenDto) {
     return this.authService.resetPassword(dto.token, dto.newPassword);
   }
 
   @Post('invitation/accept')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Aceptar una invitación: define la contraseña y verifica el correo' })
   async acceptInvitation(@Body() dto: AcceptInvitationDto) {
     return this.authService.acceptInvitation(dto.token, dto.newPassword);
   }
 
   @Post('logout')
-  @UseGuards(AuthGuard('jwt'))
+  @UseGuards(AuthGuard('jwt'), ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cerrar sesión (invalida los tokens emitidos)' })
   async logout(@Request() req: any) {

@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -11,6 +12,7 @@ import { DatabaseService } from '../../database/database.service';
 import { TokensService } from './tokens.service';
 import { MailService } from '../mail/mail.service';
 import { LoginDto } from './dto/login.dto';
+import { AuthAuditEvent } from './audit-events';
 
 /** Perfil normalizado que entrega la estrategia de Google. */
 export interface GoogleProfile {
@@ -30,9 +32,36 @@ export class AuthService {
     private readonly mail: MailService,
   ) {}
 
+  private readonly logger = new Logger(AuthService.name);
+
   /** URL base pública de la web, para armar los enlaces de los correos. */
   private appBaseUrl(): string {
     return process.env.APP_URL ?? process.env.WEB_APP_URL ?? 'http://localhost:3000';
+  }
+
+  /**
+   * Registra un evento de autenticación en `audit_logs`. Es best-effort: nunca
+   * interrumpe el flujo de auth si la auditoría falla. Sin usuario no hay fila
+   * (la tabla exige `entity_id`), solo se deja constancia en el log.
+   */
+  private async audit(
+    action: AuthAuditEvent,
+    userId: string | null,
+    meta?: Record<string, any>,
+  ): Promise<void> {
+    if (!userId) {
+      this.logger.warn(`Evento de auth sin usuario: ${action}`);
+      return;
+    }
+    try {
+      await this.db.query(
+        `INSERT INTO audit_logs (user_id, action, entity_name, entity_id, new_values)
+         VALUES ($1, $2, 'users', $1, $3)`,
+        [userId, action, meta ? JSON.stringify(meta) : null],
+      );
+    } catch (err) {
+      this.logger.warn(`No se pudo auditar ${action}: ${(err as Error).message}`);
+    }
   }
 
   async login(loginDto: LoginDto) {
@@ -61,6 +90,7 @@ export class AuthService {
       devBypass || (await bcrypt.compare(password, user.password_hash).catch(() => false));
 
     if (!isPasswordValid) {
+      await this.audit('LOGIN_FAILED', user.id, { email: user.email });
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
@@ -72,7 +102,9 @@ export class AuthService {
       });
     }
 
-    return this.findSessionPayload(user);
+    const session = await this.findSessionPayload(user);
+    await this.audit('LOGIN_OK', user.id, { email: user.email });
+    return session;
   }
 
   /**
@@ -123,6 +155,7 @@ export class AuthService {
         throw new UnauthorizedException('El usuario se encuentra desactivado');
       }
       await this.linkGoogleIdentity(user.id, profile.googleId, email);
+      await this.audit('GOOGLE_LINKED', user.id, { email });
     }
 
     if (!user.is_active) {
@@ -139,7 +172,9 @@ export class AuthService {
       [user.id, profile.avatarUrl ?? null],
     );
 
-    return this.findSessionPayload(user);
+    const session = await this.findSessionPayload(user);
+    await this.audit('GOOGLE_LOGIN', user.id, { email });
+    return session;
   }
 
   /** Vincula (o refresca) la identidad GOOGLE de un usuario. */
@@ -233,6 +268,7 @@ export class AuthService {
       `UPDATE users SET email_verified_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [consumed.userId],
     );
+    await this.audit('EMAIL_VERIFIED', consumed.userId, { email: consumed.email });
     return { verified: true };
   }
 
@@ -253,6 +289,7 @@ export class AuthService {
         user.email,
         `${this.appBaseUrl()}/verify-email?token=${token}`,
       );
+      await this.audit('EMAIL_VERIFICATION_RESENT', user.id, { email: user.email });
     }
     return { sent: true };
   }
@@ -274,6 +311,7 @@ export class AuthService {
         user.email,
         `${this.appBaseUrl()}/reset-password?token=${token}`,
       );
+      await this.audit('PASSWORD_RESET_REQUESTED', user.id, { email: user.email });
     }
     return { ok: true };
   }
@@ -290,6 +328,7 @@ export class AuthService {
         WHERE id = $2`,
       [hash, consumed.userId],
     );
+    await this.audit('PASSWORD_RESET_DONE', consumed.userId, { email: consumed.email });
     return { success: true };
   }
 
@@ -321,6 +360,7 @@ export class AuthService {
       [consumed.userId, consumed.email],
     );
 
+    await this.audit('USER_INVITED_ACCEPTED', consumed.userId, { email: consumed.email });
     return { success: true };
   }
 
@@ -330,6 +370,7 @@ export class AuthService {
       `UPDATE users SET token_version = token_version + 1, updated_at = NOW() WHERE id = $1`,
       [userId],
     );
+    await this.audit('LOGOUT', userId);
     return { success: true };
   }
 
