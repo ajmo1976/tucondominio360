@@ -42,7 +42,7 @@
 **Interfaces:**
 - Produces: columnas `users.email_verified_at`, `users.last_login_at`, `users.token_version`, `users.password_hash`/`doc_number` nullable; tablas `user_identities`, `auth_tokens`.
 
-- [ ] **Step 1: Escribir la migración**
+- [x] **Step 1: Escribir la migración**
 
 ```sql
 -- 20261017_identity_auth.sql
@@ -84,18 +84,18 @@ ON CONFLICT DO NOTHING;
 UPDATE users SET email_verified_at = NOW() WHERE email_verified_at IS NULL AND password_hash IS NOT NULL;
 ```
 
-- [ ] **Step 2: Aplicar y verificar contra la BD local**
+- [x] **Step 2: Aplicar y verificar contra la BD local**
 
 Run: `docker exec -i tucondominio360_postgres psql -U postgres -d tucondominio360 < database/migrations/20261017_identity_auth.sql`
 Expected: sin error; luego:
 Run: `docker exec tucondominio360_postgres psql -U postgres -d tucondominio360 -c "\d users" | grep -E "token_version|email_verified_at"`
 Expected: ambas columnas listadas.
 
-- [ ] **Step 3: Reflejar el cambio en `database/schema.sql`**
+- [x] **Step 3: Reflejar el cambio en `database/schema.sql`**
 
 Actualizar la definición de `users` y añadir `user_identities` + `auth_tokens` con las mismas columnas/constraints.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add database/migrations/20261017_identity_auth.sql database/schema.sql
@@ -119,7 +119,7 @@ git commit -m "feat(db): identidad de usuarios, email verificado y tokens de aut
   - `function generateToken(): string` (base64url, 32 bytes)
   - `function hashToken(token: string): string` (sha256 hex, 64 chars)
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 ```ts
 // packages/shared/src/auth.spec.ts
@@ -145,21 +145,21 @@ test('TTL: invitacion 7d, reset 1h, verificacion 24h', () => {
 });
 ```
 
-- [ ] **Step 2: Ejecutar y ver que falla**
+- [x] **Step 2: Ejecutar y ver que falla**
 
 Run: `cd packages/shared && node --require ts-node/register/transpile-only --test src/auth.spec.ts`
 Expected: FAIL `Cannot find module './auth'`.
 
-- [ ] **Step 3: Implementar `packages/shared/src/auth.ts`**
+- [x] **Step 3: Implementar `packages/shared/src/auth.ts`**
 
 Usar `import { createHash, randomBytes } from 'node:crypto'`. `hashToken = createHash('sha256').update(token).digest('hex')`. Exportar los tipos y `AUTH_TOKEN_TTL_MS`. Re-exportar todo desde `index.ts`.
 
-- [ ] **Step 4: Ejecutar y ver que pasa**
+- [x] **Step 4: Ejecutar y ver que pasa**
 
 Run: `cd packages/shared && node --require ts-node/register/transpile-only --test src/auth.spec.ts && npm run build`
 Expected: PASS (3 tests) y build sin errores.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/shared/src/auth.ts packages/shared/src/auth.spec.ts packages/shared/src/index.ts
@@ -185,7 +185,7 @@ git commit -m "feat(shared): helpers de tokens de autenticacion"
   - `MailService.sendEmailVerification(to, link): Promise<...>`
   - `templates.invitationEmail(link)`, `.passwordResetEmail(link)`, `.emailVerificationEmail(link)` → `{ subject, html }`
 
-- [ ] **Step 1: Test que falla (modo log)**
+- [x] **Step 1: Test que falla (modo log)**
 
 ```ts
 // apps/api/src/modules/mail/mail.service.spec.ts
@@ -208,21 +208,21 @@ test('plantilla de invitacion incluye el enlace', () => {
 });
 ```
 
-- [ ] **Step 2: Ejecutar y ver que falla**
+- [x] **Step 2: Ejecutar y ver que falla**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/mail/mail.service.spec.ts`
 Expected: FAIL `Cannot find module './mail.service'`.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 `MailService` lee `MAIL_MODE` (`smtp|log`), `SMTP_HOST/PORT/USER/PASS/SMTP_FROM`, `APP_URL`. Si `log` (o falta SMTP), hace `Logger.log` del enlace y devuelve `{ mode: 'log', preview: html }`. `templates.ts` exporta las 3 funciones con asunto en español y HTML simple (saludo, botón/enlace, expiración). `MailModule` provee/exporta `MailService`.
 
-- [ ] **Step 4: Ejecutar y ver que pasa**
+- [x] **Step 4: Ejecutar y ver que pasa**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/mail/mail.service.spec.ts`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/mail apps/api/src/app.module.ts apps/api/.env.example
@@ -244,7 +244,7 @@ git commit -m "feat(api): MailService con nodemailer y modo log"
   - `TokensService.issue(userId: string, purpose: EmailTokenPurpose, email: string): Promise<string>` (devuelve token en claro)
   - `TokensService.consume(token: string, purpose: EmailTokenPurpose): Promise<{ userId: string; email: string } | null>`
 
-- [ ] **Step 1: Test que falla con una BD falsa**
+- [x] **Step 1: Test que falla con una BD falsa**
 
 ```ts
 import { test } from 'node:test';
@@ -273,21 +273,21 @@ test('consume devuelve null si no hay fila', async () => {
 });
 ```
 
-- [ ] **Step 2: Ejecutar y ver que falla**
+- [x] **Step 2: Ejecutar y ver que falla**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/auth/tokens.service.spec.ts`
 Expected: FAIL (módulo no existe).
 
-- [ ] **Step 3: Implementar `TokensService`**
+- [x] **Step 3: Implementar `TokensService`**
 
 `issue`: `DELETE` tokens previos no consumidos del mismo `(user_id,purpose)`; `INSERT` con `token_hash=hashToken(token)`, `expires_at = NOW() + ttl`. `consume`: `UPDATE auth_tokens SET consumed_at=NOW() WHERE token_hash=$1 AND purpose=$2 AND consumed_at IS NULL AND expires_at > NOW() RETURNING user_id, email`; devolver `{ userId, email }` o `null`.
 
-- [ ] **Step 4: Ejecutar y ver que pasa**
+- [x] **Step 4: Ejecutar y ver que pasa**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/auth/tokens.service.spec.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/auth/tokens.service.ts apps/api/src/modules/auth/tokens.service.spec.ts apps/api/src/modules/auth/auth.module.ts
@@ -311,7 +311,7 @@ git commit -m "feat(api): TokensService de un solo uso hasheado"
   - `POST /api/users/:id/invitation/resend` → `{ sent: true }`
   - `POST /api/users/:id/invitation/revoke` → `{ revoked: true }`
 
-- [ ] **Step 1: Test que falla (servicio, con dobles)**
+- [x] **Step 1: Test que falla (servicio, con dobles)**
 
 ```ts
 // apps/api/src/modules/users/users.invite.spec.ts
@@ -335,25 +335,25 @@ test('crear sin password emite invitacion y no guarda hash', async () => {
 });
 ```
 
-- [ ] **Step 2: Ejecutar y ver que falla**
+- [x] **Step 2: Ejecutar y ver que falla**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/users/users.invite.spec.ts`
 Expected: FAIL (el `create` actual exige `dto.password`/`dto.docNumber`).
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 En `create`: si `dto.password` existe → `bcrypt.hash` y `email_verified_at = NOW()`; si no → `password_hash = NULL`, `email_verified_at = NULL`, y tras `COMMIT` llamar `tokens.issue(userId,'INVITATION',email)` + `mail.sendInvitation(email, `${APP_URL}/accept-invite?token=${token}`)`, devolver `{ ...findOne, invitationSent: true }`. Añadir `resendInvitation(id)` (rechaza si ya está verificado) y `revokeInvitation(id)`. Añadir los endpoints al controller (solo superadmin, como el resto del controlador).
 
-- [ ] **Step 3b: Ajustar el constructor y wiring**
+- [x] **Step 3b: Ajustar el constructor y wiring**
 
 `UsersService` pasa a `constructor(db, tokens: TokensService, mail: MailService)`. `UsersModule` importa `AuthModule` (exporta `TokensService`) y `MailModule`. Verificar que `nest build` no se cicla (`AuthModule` no debe importar `UsersModule`).
 
-- [ ] **Step 4: Compilar y correr el test**
+- [x] **Step 4: Compilar y correr el test**
 
 Run: `cd apps/api && npm run build && node --require ts-node/register/transpile-only --test src/modules/users/users.invite.spec.ts`
 Expected: build OK y PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/users
@@ -378,7 +378,7 @@ git commit -m "feat(api): invitar usuarios por correo con token"
   - `login` responde 403 `{ code: 'EMAIL_NOT_VERIFIED' }` cuando `MAIL_VERIFY_REQUIRED === 'true'` y `email_verified_at IS NULL`.
   - `GET /api/auth/me` incluye `emailVerified: boolean` y `authProviders: AuthProvider[]`.
 
-- [ ] **Step 1: Test que falla (gating)**
+- [x] **Step 1: Test que falla (gating)**
 
 ```ts
 // apps/api/src/modules/auth/auth.verify.spec.ts
@@ -396,21 +396,21 @@ test('login bloquea si el correo no esta verificado y la regla esta activa', asy
 });
 ```
 
-- [ ] **Step 2: Ejecutar y ver que falla**
+- [x] **Step 2: Ejecutar y ver que falla**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/auth/auth.verify.spec.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 En `login`, tras validar credenciales: si `MAIL_VERIFY_REQUIRED==='true'` y `!user.email_verified_at` → `throw new ForbiddenException({ message: 'Debes verificar tu correo electrónico', code: 'EMAIL_NOT_VERIFIED' })`. Añadir `verifyEmail(token)` (usa `TokensService.consume(token,'EMAIL_VERIFICATION')`, set `email_verified_at=NOW()`) y `resendVerification(email)` (202 siempre; emite+envía solo si existe y no verificado). Extender `getProfile` con `emailVerified` y `authProviders` (join `user_identities`).
 
-- [ ] **Step 4: Ejecutar y ver que pasa**
+- [x] **Step 4: Ejecutar y ver que pasa**
 
 Run: `cd apps/api && npm run build && node --require ts-node/register/transpile-only --test src/modules/auth/auth.verify.spec.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/auth
@@ -434,7 +434,7 @@ git commit -m "feat(api): verificacion de correo y bloqueo de login no verificad
   - `AuthService.loginWithGoogle(profile: GoogleProfile): Promise<{ accessToken, user, condos }>`
   - `GET /api/auth/google` y `GET /api/auth/google/callback` (redirige a `${WEB_APP_URL}/auth/callback?token=<jwt>` o `/login?error=<code>`).
 
-- [ ] **Step 1: Test que falla (invite-first)**
+- [x] **Step 1: Test que falla (invite-first)**
 
 ```ts
 // apps/api/src/modules/auth/auth.google.spec.ts
@@ -461,21 +461,21 @@ test('google vincula identidad de usuario existente', async () => {
 });
 ```
 
-- [ ] **Step 2: Ejecutar y ver que falla**
+- [x] **Step 2: Ejecutar y ver que falla**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/auth/auth.google.spec.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 `loginWithGoogle`: buscar en `user_identities(provider='GOOGLE', provider_user_id=googleId)`; si no, buscar `users` por email normalizado; si no existe o `is_active=false` → `UnauthorizedException('INVITE_REQUIRED')`; si existe, upsert identidad, `UPDATE users SET email_verified_at=COALESCE(email_verified_at,NOW()), last_login_at=NOW(), avatar_url=COALESCE(avatar_url,$)`, firmar JWT con `{ sub, email, isSuperadmin, tv: token_version }`. `GoogleStrategy` con `clientID`, `clientSecret`, `callbackURL` desde env; `passReqToCallback:false`; `scope: ['email','profile']`. Controller: `@UseGuards(AuthGuard('google'))` en ambos; el callback firma el `state` y redirige.
 
-- [ ] **Step 4: Ejecutar y ver que pasa**
+- [x] **Step 4: Ejecutar y ver que pasa**
 
 Run: `cd apps/api && npm run build && node --require ts-node/register/transpile-only --test src/modules/auth/auth.google.spec.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/auth apps/api/package.json
@@ -502,7 +502,7 @@ git commit -m "feat(api): login con Google (invite-first)"
   - `POST /api/auth/logout` → `{ success: true }`
   - `POST /api/users/:id/password-reset-link` (admin) → `{ sent: true }`
 
-- [ ] **Step 1: Test que falla**
+- [x] **Step 1: Test que falla**
 
 ```ts
 // apps/api/src/modules/auth/auth.reset.spec.ts
@@ -525,21 +525,21 @@ test('forgot responde ok aunque el correo no exista', async () => {
 });
 ```
 
-- [ ] **Step 2: Ejecutar y ver que falla**
+- [x] **Step 2: Ejecutar y ver que falla**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/auth/auth.reset.spec.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 `forgotPassword`: si el usuario existe y tiene identidad `LOCAL` (o cualquier usuario), `TokensService.issue(user.id,'PASSWORD_RESET',user.email)` + `MailService.sendPasswordReset`; **siempre** `{ ok: true }`. `resetPassword`: `consume(token,'PASSWORD_RESET')`; si null → `BadRequestException('Token inválido o expirado')`; `bcrypt.hash`, `UPDATE users SET password_hash=$1, token_version=token_version+1, updated_at=NOW()`. `acceptInvitation`: `consume(token,'INVITATION')` → set hash, `email_verified_at=NOW()`, `token_version++`. `logout`: `token_version++`. `JwtStrategy.validate`: consultar `token_version` y comparar con `payload.tv` (si difieren → 401). Quitar el bypass `secret123` cuando `NODE_ENV==='production'` (en `login` y `changePassword`).
 
-- [ ] **Step 4: Ejecutar y ver que pasa**
+- [x] **Step 4: Ejecutar y ver que pasa**
 
 Run: `cd apps/api && npm run build && node --require ts-node/register/transpile-only --test src/modules/auth/auth.reset.spec.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/auth apps/api/src/modules/users
@@ -559,7 +559,7 @@ git commit -m "feat(api): reseteo de contrasena, aceptar invitacion e invalidaci
 **Interfaces:**
 - Produces: límite global de auth (`10/min`), `password/forgot` y `email/resend` (`3/15min`); eventos de auditoría.
 
-- [ ] **Step 1: Test que falla (helper de auditoría puro)**
+- [x] **Step 1: Test que falla (helper de auditoría puro)**
 
 ```ts
 // apps/api/src/modules/auth/audit-events.spec.ts
@@ -573,12 +573,12 @@ test('los eventos de auditoria de auth estan definidos', () => {
 });
 ```
 
-- [ ] **Step 2: Ejecutar y ver que falla**
+- [x] **Step 2: Ejecutar y ver que falla**
 
 Run: `cd apps/api && node --require ts-node/register/transpile-only --test src/modules/auth/audit-events.spec.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 `audit-events.ts` exporta `AUTH_AUDIT_EVENTS`. `AuthService` gana `private audit(action, userId, meta?)` que hace:
 
@@ -589,17 +589,17 @@ VALUES ($1, $2, 'users', $1, $3)
 
 (`audit_logs` real: `user_id`, `action`, `entity_name`, `entity_id UUID NOT NULL`, `old_values`, `new_values`, `ip_address`, `user_agent`). Añadir `@Throttle` a login/forgot/resend/reset. Configurar `ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])` + `ThrottlerGuard` global.
 
-- [ ] **Step 3bis: Verificar la tabla `audit_logs`**
+- [x] **Step 3bis: Verificar la tabla `audit_logs`**
 
 Run: `docker exec tucondominio360_postgres psql -U postgres -d tucondominio360 -c "\d audit_logs"`
 Expected: columnas `action`, `entity_name`, `entity_id`, `new_values`; ajustar el INSERT si cambió el esquema.
 
-- [ ] **Step 4: Ejecutar y ver que pasa**
+- [x] **Step 4: Ejecutar y ver que pasa**
 
 Run: `cd apps/api && npm run build && node --require ts-node/register/transpile-only --test src/modules/auth/audit-events.spec.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/modules/auth apps/api/src/app.module.ts apps/api/package.json
@@ -619,24 +619,24 @@ git commit -m "feat(api): rate limiting y auditoria de autenticacion"
 - Consumes: endpoints de A5-A8.
 - Produces: páginas que leen `?token=`/`?status=`/`?error=` y llaman a la API.
 
-- [ ] **Step 1: Añadir helpers en `lib/api.ts`**
+- [x] **Step 1: Añadir helpers en `lib/api.ts`**
 
 `export async function loginWithGoogleToken(token: string): Promise<Session>` (setea localStorage como `login`). `forgotPassword(email)`, `resetPassword(token,newPassword)`, `verifyEmail(token)`, `acceptInvitation(token,newPassword)` → `fetch` a `${API_BASE}/auth/...`.
 
-- [ ] **Step 2: Botón Google en `/login`**
+- [x] **Step 2: Botón Google en `/login`**
 
 Añadir `<a href="http://localhost:3001/api/auth/google">Continuar con Google</a>` y el enlace a `/forgot-password`. Si `login` lanza mensaje que incluya `verificar`, mostrar botón "Reenviar verificación" (`email/resend`).
 
-- [ ] **Step 3: Páginas restantes**
+- [x] **Step 3: Páginas restantes**
 
 `/auth/callback`: lee `token` de `searchParams`, llama `loginWithGoogleToken`, redirige a `/`. `/forgot-password`: formulario email → mensaje "si el correo existe, recibirás un enlace". `/reset-password` y `/accept-invite`: token oculto + nueva clave + confirmación → llaman API → redirigen a `/login`. `/verify-email`: llama `verifyEmail(token)` y muestra ok/error.
 
-- [ ] **Step 4: Compilar**
+- [x] **Step 4: Compilar**
 
 Run: `cd apps/web && npx next build`
 Expected: compila; rutas nuevas listadas.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/app apps/web/src/lib/api.ts
@@ -647,12 +647,12 @@ git commit -m "feat(web): paginas de invitacion, verificacion y reseteo de contr
 
 ### Task A11: Verificación E2E de la Fase A
 
-- [ ] **Step 1: Levantar servicios**
+- [x] **Step 1: Levantar servicios**
 
 Run: `./start.sh`
 Expected: API 3001 y Web 3000 en HTTP 200.
 
-- [ ] **Step 2: Flujo invitación (con SMTP en modo log)**
+- [x] **Step 2: Flujo invitación (con SMTP en modo log)**
 
 1. `POST /api/users` sin `password` para `e2e.invitado@example.com` (token superadmin).
 2. Leer el token: `docker exec tucondominio360_postgres psql -U postgres -d tucondominio360 -c "SELECT purpose, expires_at, consumed_at FROM auth_tokens ORDER BY created_at DESC LIMIT 1"`
@@ -660,19 +660,19 @@ Expected: API 3001 y Web 3000 en HTTP 200.
 4. `POST /api/auth/login` con esa clave → 200.
 Expected: los 4 pasos OK; el token queda `consumed_at` no nulo.
 
-- [ ] **Step 3: Flujo reset + caducidad**
+- [x] **Step 3: Flujo reset + caducidad**
 
 1. `POST /api/auth/password/forgot { email }` → 202.
 2. Reusar un token ya consumido en `/auth/password/reset` → 400.
 3. Forzar `expires_at` en el pasado, reintentar → 400.
 Expected: 202 + dos 400.
 
-- [ ] **Step 4: Google (si hay credenciales)**
+- [x] **Step 4: Google (si hay credenciales)**
 
 Con `GOOGLE_CLIENT_ID/SECRET` configurados, abrir `http://localhost:3001/api/auth/google` con un correo invitado → redirige a `/auth/callback?token=...` y entra. Con un correo no invitado → `/login?error=not_invited`.
 Expected: ambos comportamientos.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .
