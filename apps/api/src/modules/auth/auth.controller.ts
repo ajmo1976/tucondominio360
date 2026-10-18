@@ -18,6 +18,7 @@ import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { EmailOnlyDto } from './dto/email-only.dto';
+import { GoogleAuthGuard } from './google-auth.guard';
 
 @ApiTags('Autenticación')
 @Controller('auth')
@@ -55,6 +56,31 @@ export class AuthController {
   @ApiOperation({ summary: 'Reenviar el correo de verificación (respuesta uniforme, no revela si existe)' })
   async resendVerification(@Body() dto: EmailOnlyDto) {
     return this.authService.resendVerification(dto.email);
+  }
+
+  @Get('google')
+  @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Iniciar sesión con Google (solo correos ya registrados)' })
+  async googleAuth() {
+    // El guard de Passport redirige a Google; el handler no se ejecuta.
+  }
+
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Callback de Google: emite el JWT y redirige a la web' })
+  async googleCallback(@Request() req: any, @Res() res: Response) {
+    const base = process.env.APP_URL ?? process.env.WEB_APP_URL ?? 'http://localhost:3000';
+    try {
+      const session = await this.authService.loginWithGoogle(req.user);
+      return res.redirect(
+        `${base}/auth/callback?token=${encodeURIComponent(session.accessToken)}`,
+      );
+    } catch (err: any) {
+      const response = err?.getResponse?.();
+      const code =
+        (typeof response === 'object' && response?.code) || err?.getStatus?.() || 'google_error';
+      return res.redirect(`${base}/login?error=${encodeURIComponent(String(code))}`);
+    }
   }
 
   @Get('me')

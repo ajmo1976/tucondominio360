@@ -12,6 +12,15 @@ import { TokensService } from './tokens.service';
 import { MailService } from '../mail/mail.service';
 import { LoginDto } from './dto/login.dto';
 
+/** Perfil normalizado que entrega la estrategia de Google. */
+export interface GoogleProfile {
+  googleId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -79,6 +88,117 @@ export class AuthService {
     };
 
     const token = this.jwtService.sign(payload);
+
+    return {
+      accessToken: token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        docType: user.doc_type,
+        docNumber: user.doc_number,
+        phone: user.phone,
+        isSuperadmin: user.is_superadmin,
+      },
+      condos: condosRes.rows,
+    };
+  }
+
+  /**
+   * Login con Google bajo el modelo *invite-first*: solo pueden entrar correos
+   * que ya tengan una cuenta creada (por invitación o por la administración).
+   * En el primer ingreso se vincula la identidad GOOGLE al usuario existente y
+   * se marca el correo como verificado (Google ya lo verificó).
+   */
+  async loginWithGoogle(profile: GoogleProfile) {
+    const email = (profile.email || '').trim().toLowerCase();
+    if (!email) {
+      throw new UnauthorizedException({
+        message: 'Google no devolvió un correo electrónico',
+        code: 'GOOGLE_NO_EMAIL',
+      });
+    }
+
+    const userColumns = `id, email, first_name, last_name, doc_type, doc_number, phone,
+                          is_active, is_superadmin, email_verified_at, token_version, avatar_url`;
+
+    // 1) ¿Ya existe una identidad GOOGLE vinculada a este googleId?
+    const identRes = await this.db.query(
+      `SELECT u.id, u.email, u.first_name, u.last_name, u.doc_type, u.doc_number, u.phone,
+              u.is_active, u.is_superadmin, u.email_verified_at, u.token_version, u.avatar_url
+         FROM user_identities i
+         JOIN users u ON u.id = i.user_id
+        WHERE i.provider = 'GOOGLE' AND i.provider_user_id = $1`,
+      [profile.googleId],
+    );
+
+    let user = identRes.rows[0];
+
+    if (!user) {
+      // 2) Invite-first: el correo debe tener ya una cuenta.
+      const byEmail = await this.db.query(
+        `SELECT ${userColumns} FROM users WHERE LOWER(email) = $1`,
+        [email],
+      );
+      if (byEmail.rows.length === 0) {
+        throw new UnauthorizedException({
+          message:
+            'Este correo no tiene una cuenta en TuCondominio360. Pide una invitación a la administración.',
+          code: 'INVITE_REQUIRED',
+        });
+      }
+      user = byEmail.rows[0];
+      if (!user.is_active) {
+        throw new UnauthorizedException('El usuario se encuentra desactivado');
+      }
+      await this.linkGoogleIdentity(user.id, profile.googleId, email);
+    }
+
+    if (!user.is_active) {
+      throw new UnauthorizedException('El usuario se encuentra desactivado');
+    }
+
+    await this.db.query(
+      `UPDATE users
+          SET email_verified_at = COALESCE(email_verified_at, NOW()),
+              last_login_at = NOW(),
+              avatar_url = COALESCE(avatar_url, $2),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [user.id, profile.avatarUrl ?? null],
+    );
+
+    return this.findSessionPayload(user);
+  }
+
+  /** Vincula (o refresca) la identidad GOOGLE de un usuario. */
+  private async linkGoogleIdentity(userId: string, googleId: string, email: string) {
+    await this.db.query(
+      `INSERT INTO user_identities (user_id, provider, provider_user_id, email_at_provider, last_used_at)
+       VALUES ($1, 'GOOGLE', $2, $3, NOW())
+       ON CONFLICT (provider, provider_user_id)
+       DO UPDATE SET last_used_at = NOW(), email_at_provider = EXCLUDED.email_at_provider`,
+      [userId, googleId, email],
+    );
+  }
+
+  /** Arma la sesión (JWT + usuario + residencias) para un usuario ya validado. */
+  private async findSessionPayload(user: any) {
+    const condosRes = await this.db.query(
+      `SELECT cua.condo_id, c.name as condo_name, cua.role
+       FROM condo_user_access cua
+       JOIN condos c ON c.id = cua.condo_id
+       WHERE cua.user_id = $1 AND cua.is_active = TRUE`,
+      [user.id],
+    );
+
+    const token = this.jwtService.sign({
+      sub: user.id,
+      email: user.email,
+      isSuperadmin: user.is_superadmin,
+      tv: user.token_version ?? 0,
+    });
 
     return {
       accessToken: token,
