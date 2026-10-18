@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { AccessService } from '../access-core';
 
 import { CreateAnnouncementDto, UpdateAnnouncementDto, AcknowledgeAnnouncementDto } from './dto/announcements.dto';
 import { AnnouncementCategory, AnnouncementStatus, AnnouncementsKPIs } from './dto/announcements.dto';
@@ -8,7 +9,10 @@ const ANNOUNCEMENT_CODE_PREFIX = 'ANUNC';
 
 @Injectable()
 export class AnnouncementsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly access: AccessService,
+  ) {}
 
   /** Validar que el usuario tenga acceso al condominio. */
   private async assertCondoAccess(user: any, condoId: string) {
@@ -169,13 +173,11 @@ export class AnnouncementsService {
     const checkRes = await this.db.query(`SELECT id, author_user_id FROM announcements WHERE id = $1 AND condo_id = $2`, [announcementId, condoId]);
     if (checkRes.rows.length === 0) throw new NotFoundException('Comunicado no encontrado');
 
-    // Verificar permisos: solo el autor o staff/junta pueden modificar
-    if (checkRes.rows[0].author_user_id !== user.id && !user.is_superadmin) {
-      const roleRes = await this.db.query(
-        `SELECT 1 FROM condo_user_access WHERE condo_id = $1 AND user_id = $2 AND is_active = TRUE`,
-        [condoId, user.id],
-      );
-      if (roleRes.rows.length === 0) throw new ForbiddenException('No tienes permisos para modificar este comunicado');
+    // Verificar permisos: el autor puede editar lo suyo; el resto necesita
+    // ANNOUNCEMENTS_MANAGE (la administración/junta).
+    const isAuthor = checkRes.rows[0].author_user_id === user.id;
+    if (!isAuthor) {
+      await this.access.assertCondoPermission(user.id, condoId, 'ANNOUNCEMENTS_MANAGE');
     }
 
     // Construir query dinámico de actualización

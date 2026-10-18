@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import type { CondoRole, TenantRole } from '@tucondominio360/shared';
+import type { CondoPermission, CondoRole, TenantRole } from '@tucondominio360/shared';
 import { DatabaseService } from '../../database/database.service';
 import { composeAccess, type CondoAccess } from './access.logic';
+import { assertAnyPermission } from './condo-permission.logic';
 
 /**
  * Resuelve el acceso efectivo de un usuario: rol de tenant (empresa
@@ -56,6 +57,22 @@ export class AccessService {
       condoRoles,
       occupantRoles,
     });
+  }
+
+  /**
+   * Resuelve el acceso del usuario a la residencia y exige al menos una de las
+   * capacidades indicadas; lanza 403 si no las tiene. Devuelve el `CondoAccess`
+   * para reutilizarlo. Pensado para chequeos dentro de servicios, donde el
+   * `condoId` se conoce tras cargar la entidad (p. ej. el ticket).
+   */
+  async assertCondoPermission(
+    userId: string,
+    condoId: string,
+    ...required: CondoPermission[]
+  ): Promise<CondoAccess> {
+    const access = await this.resolveCondoAccess(userId, condoId);
+    assertAnyPermission(access.permissions, required);
+    return access;
   }
 
   /**

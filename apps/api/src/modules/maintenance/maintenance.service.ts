@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
+import { AccessService } from '../access-core';
 import { randomUUID } from 'crypto';
 
 import { CreateTicketDto, UpdateTicketDto, CreateTicketCommentDto } from './dto/maintenance.dto';
@@ -10,7 +11,10 @@ const ANNOUNCEMENT_CODE_PREFIX = 'ANUNC';
 
 @Injectable()
 export class MaintenanceService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly access: AccessService,
+  ) {}
 
   /** Validar que el usuario tenga acceso al condominio. */
   private async assertCondoAccess(user: any, condoId: string) {
@@ -208,16 +212,9 @@ export class MaintenanceService {
     const ticketCheck = await this.db.query(`SELECT id, status, assigned_to_user_id FROM maintenance_tickets WHERE id = $1 AND condo_id = $2`, [ticketId, condoId]);
     if (ticketCheck.rows.length === 0) throw new NotFoundException('Ticket no encontrado');
 
-    // Permisos: solo admin/junta pueden cambiar el estado; el reportero solo puede agregar comentarios
-    // Permitir cambio de estado si es admin o el assigned_to_user_id coincide
-    const isStaff = Boolean(user.is_superadmin);
-    if (!isStaff) {
-      const roleRes = await this.db.query(
-        `SELECT 1 FROM condo_user_access WHERE condo_id = $1 AND user_id = $2 AND is_active = TRUE`,
-        [condoId, user.id],
-      );
-      if (roleRes.rows.length === 0) throw new ForbiddenException('No tienes permisos para modificar este ticket');
-    }
+    // Permisos: solo quien puede GESTIONAR mantenimiento cambia el estado; el
+    // residente con MAINTENANCE_REPORT solo puede crear el ticket y comentar.
+    await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE');
 
     // Construir query dinámico de actualización
     const updates: string[] = [];
@@ -282,17 +279,10 @@ export class MaintenanceService {
     return res.rows[0];
   }
 
-  /** Eliminar un ticket (solo administración/junta) */
+  /** Eliminar un ticket (solo quien puede gestionar mantenimiento) */
   async deleteTicket(user: any, condoId: string, ticketId: string) {
     await this.assertCondoAccess(user, condoId);
-
-    if (!user.is_superadmin) {
-      const roleRes = await this.db.query(
-        `SELECT 1 FROM condo_user_access WHERE condo_id = $1 AND user_id = $2 AND is_active = TRUE`,
-        [condoId, user.id],
-      );
-      if (roleRes.rows.length === 0) throw new ForbiddenException('No tienes permisos para eliminar este ticket');
-    }
+    await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE');
 
     const res = await this.db.query(
       `DELETE FROM maintenance_tickets WHERE id = $1 AND condo_id = $2 RETURNING id`,
@@ -317,13 +307,9 @@ export class MaintenanceService {
     const ticketCheck = await this.db.query(`SELECT id, condo_id FROM maintenance_tickets WHERE id = $1`, [dto.ticketId]);
     if (ticketCheck.rows.length === 0) throw new NotFoundException('Ticket no encontrado');
 
-    // Si es interno, verificar que el usuario tiene rol de staff/junta
+    // Los comentarios internos son solo para quien gestiona mantenimiento.
     if (dto.isInternalOnly) {
-      const roleRes = await this.db.query(
-        `SELECT 1 FROM condo_user_access WHERE condo_id = $1 AND user_id = $2 AND is_active = TRUE`,
-        [condoId, user.id],
-      );
-      if (roleRes.rows.length === 0) throw new ForbiddenException('Solo la administración y la junta pueden agregar comentarios internos');
+      await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE');
     }
 
     const res = await this.db.query(

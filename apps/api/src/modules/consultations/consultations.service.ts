@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
+import { AccessService } from '../access-core';
 import { AddElectorDto } from './dto/add-elector.dto';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
@@ -45,7 +46,10 @@ const VISIBLE_STATUSES = `('PUBLISHED', 'CLOSED', 'CANCELLED')`;
 
 @Injectable()
 export class ConsultationsService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly access: AccessService,
+  ) {}
 
   async create(user: any, dto: CreateConsultationDto): Promise<{ id: string }> {
     const condo = await this.db.query(`SELECT id FROM condos WHERE id = $1`, [dto.condoId]);
@@ -692,6 +696,14 @@ export class ConsultationsService {
       if (consultation.status !== 'PUBLISHED') {
         throw new ForbiddenException('La consulta no está abierta para votación');
       }
+
+      // Permiso por residencia: solo quien puede VOTAR (o gestionar) consultas.
+      await this.access.assertCondoPermission(
+        user.id,
+        consultation.condo_id,
+        'CONSULTATIONS_VOTE',
+        'CONSULTATIONS_MANAGE',
+      );
 
       const now = new Date();
       if (now < new Date(consultation.start_date)) {

@@ -17,6 +17,16 @@ import {
   UpdateAnnouncementDto,
   AcknowledgeAnnouncementDto,
 } from './dto/announcements.dto';
+import {
+  CondoPermissionGuard,
+  RequireCondoPermission,
+} from '../access-core';
+
+// Mapa checks → permisos por residencia (Fase B):
+//   GET  /, /kpis, /my-acks, /:id            → ANNOUNCEMENTS_VIEW
+//   POST /                                   → ANNOUNCEMENTS_MANAGE
+//   PATCH /:id                               → ANNOUNCEMENTS_MANAGE (o autor, resuelto en el servicio)
+//   POST /:id/acknowledge                    → ANNOUNCEMENTS_ACK
 
 @Controller('announcements')
 @UseGuards(AuthGuard('jwt'))
@@ -28,6 +38,8 @@ export class AnnouncementsController {
   // ---------------------------------------------------------------------------
 
   @Get()
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ANNOUNCEMENTS_VIEW')
   listAnnouncements(@Request() req: any, @Query() dto: {
     condoId: string;
     category?: string;
@@ -44,6 +56,8 @@ export class AnnouncementsController {
   }
 
   @Post()
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ANNOUNCEMENTS_MANAGE')
   createAnnouncement(@Request() req: any, @Body() dto: CreateAnnouncementDto) {
     return this.service.createAnnouncement(req.user, dto);
   }
@@ -53,6 +67,8 @@ export class AnnouncementsController {
   // ---------------------------------------------------------------------------
 
   @Get('kpis')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ANNOUNCEMENTS_VIEW')
   async getKpis(@Request() req: any, @Query('condoId') condoId: string) {
     return this.service.getKpis(req.user, condoId);
   }
@@ -62,6 +78,8 @@ export class AnnouncementsController {
   // ---------------------------------------------------------------------------
 
   @Get('my-acks')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ANNOUNCEMENTS_VIEW')
   async getUserAcks(@Request() req: any, @Query('condoId') condoId: string) {
     return this.service.getUserAcks(req.user, condoId);
   }
@@ -71,6 +89,8 @@ export class AnnouncementsController {
   // ---------------------------------------------------------------------------
 
   @Get(':id')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ANNOUNCEMENTS_VIEW')
   async getAnnouncement(@Request() req: any, @Param('id') id: string, @Query('condoId') condoId: string) {
     return this.service.getAnnouncement(req.user, condoId || '', id);
   }
@@ -80,6 +100,8 @@ export class AnnouncementsController {
   // ---------------------------------------------------------------------------
 
   @Patch(':id')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ANNOUNCEMENTS_MANAGE')
   async updateAnnouncement(@Request() req: any, @Param('id') id: string, @Query('condoId') condoId: string, @Body() dto: UpdateAnnouncementDto) {
     return this.service.updateAnnouncement(req.user, condoId || '', id, dto);
   }
@@ -89,6 +111,8 @@ export class AnnouncementsController {
   // ---------------------------------------------------------------------------
 
   @Post(':id/acknowledge')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ANNOUNCEMENTS_ACK')
   async acknowledgeAnnouncement(
     @Request() req: any,
     @Param('id') id: string,

@@ -25,6 +25,10 @@ import {
   UpdateVehicleDto,
   ValidateAccessCodeDto,
 } from './dto/access.dto';
+import {
+  CondoPermissionGuard,
+  RequireCondoPermission,
+} from '../access-core';
 
 @Controller('access')
 @UseGuards(AuthGuard('jwt'))
@@ -46,6 +50,8 @@ export class AccessController {
   }
 
   @Patch('config')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ACCESS_MANAGE')
   updateConfig(@Request() req: any, @Body() dto: UpdateAccessConfigDto) {
     return this.service.updateConfig(req.user, dto);
   }
@@ -64,6 +70,8 @@ export class AccessController {
   }
 
   @Post('vehicles')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ACCESS_MANAGE')
   createVehicle(@Request() req: any, @Body() dto: CreateVehicleDto) {
     return this.service.createVehicle(req.user, dto);
   }
@@ -106,11 +114,15 @@ export class AccessController {
   }
 
   @Post('invitations')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ACCESS_MANAGE')
   createInvitation(@Request() req: any, @Body() dto: CreateInvitationDto) {
     return this.service.createInvitation(req.user, dto);
   }
 
   @Post('invitations/validate')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ACCESS_MANAGE', 'ACCESS_GUEST')
   validateInvitation(@Request() req: any, @Body() dto: ValidateAccessCodeDto) {
     return this.service.validateInvitationCode(req.user, dto);
   }
@@ -153,6 +165,8 @@ export class AccessController {
   }
 
   @Post('logs/check-in')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ACCESS_MANAGE')
   checkIn(@Request() req: any, @Body() dto: CheckInLogDto) {
     return this.service.checkIn(req.user, dto);
   }
@@ -203,6 +217,8 @@ export class AccessController {
   }
 
   @Post('packages')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('ACCESS_MANAGE')
   receivePackage(@Request() req: any, @Body() dto: ReceivePackageDto) {
     return this.service.receivePackage(req.user, dto);
   }

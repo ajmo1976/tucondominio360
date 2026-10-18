@@ -13,3 +13,18 @@ export function assertPermission(
     throw new ForbiddenException(`No tienes permiso para esta acción (${required})`);
   }
 }
+
+/**
+ * Como `assertPermission` pero basta con tener CUALQUIERA de las capacidades.
+ * Útil para endpoints que sirven tanto a gestión como a reporte de residentes.
+ */
+export function assertAnyPermission(
+  permissions: CondoPermission[],
+  required: CondoPermission[],
+): void {
+  if (!required.some((p) => permissions.includes(p))) {
+    throw new ForbiddenException(
+      `No tienes permiso para esta acción (${required.join(' | ')})`,
+    );
+  }
+}

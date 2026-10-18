@@ -26,6 +26,10 @@ import {
   UpdateAmenitySpaceDto,
   UpdateReservationStatusDto,
 } from './dto/amenities.dto';
+import {
+  CondoPermissionGuard,
+  RequireCondoPermission,
+} from '../access-core';
 
 @Controller('amenities')
 @UseGuards(AuthGuard('jwt'))
@@ -43,6 +47,8 @@ export class AmenitiesController {
   }
 
   @Patch('config')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('AMENITIES_MANAGE')
   updateConfig(@Request() req: any, @Body() dto: UpdateAmenitiesConfigDto) {
     return this.service.updateConfig(req.user, dto);
   }
@@ -57,6 +63,8 @@ export class AmenitiesController {
   }
 
   @Post('spaces')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('AMENITIES_MANAGE')
   createSpace(@Request() req: any, @Body() dto: CreateAmenitySpaceDto) {
     return this.service.createSpace(req.user, dto);
   }
@@ -89,6 +97,8 @@ export class AmenitiesController {
   }
 
   @Post('blackouts')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('AMENITIES_MANAGE')
   createBlackout(@Request() req: any, @Body() dto: CreateBlackoutDto) {
     return this.service.createBlackout(req.user, dto);
   }
@@ -103,6 +113,8 @@ export class AmenitiesController {
   // ---------------------------------------------------------------------------
 
   @Post('reservations/evaluate')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('AMENITIES_BOOK', 'AMENITIES_MANAGE')
   evaluateReservation(@Request() req: any, @Body() dto: EvaluateReservationDto) {
     return this.service.evaluateReservation(req.user, dto);
   }
@@ -127,6 +139,8 @@ export class AmenitiesController {
   }
 
   @Post('reservations')
+  @UseGuards(CondoPermissionGuard)
+  @RequireCondoPermission('AMENITIES_BOOK', 'AMENITIES_MANAGE')
   createReservation(@Request() req: any, @Body() dto: CreateReservationDto) {
     return this.service.createReservation(req.user, dto);
   }

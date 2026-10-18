@@ -14,11 +14,11 @@ import {
 import { Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { SuperAdminGuard } from '../users/guards/super-admin.guard';
 import { AddElectorDto } from './dto/add-elector.dto';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
 import { VoteDto } from './dto/vote.dto';
+import { ConsultationManageGuard } from './guards/consultation-manage.guard';
 import { ConsultationMemberGuard } from './guards/consultation-member.guard';
 import { ConsultationsService } from './consultations.service';
 
@@ -29,8 +29,8 @@ export class ConsultationsController {
   constructor(private readonly service: ConsultationsService) {}
 
   @Post()
-  @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Crea una consulta en borrador (solo Super Administrador)' })
+  @UseGuards(ConsultationManageGuard)
+  @ApiOperation({ summary: 'Crea una consulta en borrador (requiere CONSULTATIONS_MANAGE)' })
   create(@Request() req, @Body() dto: CreateConsultationDto) {
     return this.service.create(req.user, dto);
   }
@@ -42,8 +42,8 @@ export class ConsultationsController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Cancela una consulta con auditoría (solo Super Administrador)' })
+  @UseGuards(ConsultationManageGuard)
+  @ApiOperation({ summary: 'Cancela una consulta con auditoría (requiere CONSULTATIONS_MANAGE)' })
   cancel(@Request() req, @Param('id') id: string, @Body() body: { reason?: string }) {
     return this.service.cancel(req.user, id, body?.reason);
   }
@@ -56,22 +56,22 @@ export class ConsultationsController {
   }
 
   @Patch(':id')
-  @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Edita una consulta en borrador (solo Super Administrador)' })
+  @UseGuards(ConsultationManageGuard)
+  @ApiOperation({ summary: 'Edita una consulta en borrador (requiere CONSULTATIONS_MANAGE)' })
   update(@Request() req, @Param('id') id: string, @Body() dto: UpdateConsultationDto) {
     return this.service.update(req.user, id, dto);
   }
 
   @Post(':id/publish')
-  @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Publica la consulta y congela el padrón (solo Super Administrador)' })
+  @UseGuards(ConsultationManageGuard)
+  @ApiOperation({ summary: 'Publica la consulta y congela el padrón (requiere CONSULTATIONS_MANAGE)' })
   publish(@Request() req, @Param('id') id: string) {
     return this.service.publish(req.user, id);
   }
 
   @Post(':id/close')
-  @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Cierra la consulta y congela el resultado (solo Super Administrador)' })
+  @UseGuards(ConsultationManageGuard)
+  @ApiOperation({ summary: 'Cierra la consulta y congela el resultado (requiere CONSULTATIONS_MANAGE)' })
   close(@Request() req, @Param('id') id: string) {
     return this.service.close(req.user, id);
   }
@@ -101,22 +101,22 @@ export class ConsultationsController {
   }
 
   @Get(':id/electors')
-  @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Lista el padrón de habilitados (solo Super Administrador)' })
+  @UseGuards(ConsultationManageGuard)
+  @ApiOperation({ summary: 'Lista el padrón de habilitados (requiere CONSULTATIONS_MANAGE)' })
   electors(@Request() req, @Param('id') id: string) {
     return this.service.listElectors(req.user, id);
   }
 
   @Post(':id/electors')
-  @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Agrega un habilitado al padrón (solo Super Administrador)' })
+  @UseGuards(ConsultationManageGuard)
+  @ApiOperation({ summary: 'Agrega un habilitado al padrón (requiere CONSULTATIONS_MANAGE)' })
   addElector(@Request() req, @Param('id') id: string, @Body() dto: AddElectorDto) {
     return this.service.addElector(req.user, id, dto);
   }
 
   @Delete(':id/electors/:electorId')
-  @UseGuards(SuperAdminGuard)
-  @ApiOperation({ summary: 'Elimina un habilitado del padrón (solo Super Administrador)' })
+  @UseGuards(ConsultationManageGuard)
+  @ApiOperation({ summary: 'Elimina un habilitado del padrón (requiere CONSULTATIONS_MANAGE)' })
   removeElector(@Request() req, @Param('id') id: string, @Param('electorId') electorId: string) {
     return this.service.removeElector(req.user, id, electorId);
   }
