@@ -66,15 +66,6 @@ export type IncidentType =
   | 'COMMON_AREA'
   | 'CLEANING'
   | 'OTHER';
-export type AnnouncementCategory =
-  | 'GENERAL'
-  | 'WATER_SERVICE'
-  | 'ELEVATOR'
-  | 'FUMIGATION'
-  | 'SECURITY'
-  | 'FINANCIAL'
-  | 'LEGAL_NOTICE'
-  | 'ASSEMBLY';
 export type ConsultationType = 'CARTA_CONSULTA' | 'ASAMBLEA_ORDINARIA' | 'ASAMBLEA_EXTRAORDINARIA';
 export type ConsultationStatus = 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'CANCELLED';
 export type ConsultationResult = 'APPROVED' | 'REJECTED' | 'TIED' | 'NO_VOTES';
@@ -256,3 +247,6 @@ export interface PaymentReport {
   status: PaymentStatus;
   rejectionReason?: string;
 }
+
+// Identidad y tokens de autenticación
+export * from './auth';
