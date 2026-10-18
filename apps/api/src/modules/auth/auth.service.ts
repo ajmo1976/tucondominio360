@@ -40,7 +40,7 @@ export class AuthService {
 
     const userRes = await this.db.query(
       `SELECT id, email, password_hash, first_name, last_name, doc_type, doc_number, phone,
-              is_active, is_superadmin, email_verified_at
+              is_active, is_superadmin, email_verified_at, token_version
        FROM users WHERE LOWER(email) = LOWER($1)`,
       [email],
     );
@@ -55,10 +55,10 @@ export class AuthService {
       throw new UnauthorizedException('El usuario se encuentra desactivado');
     }
 
-    // Validación de password: bcrypt compare o bypass en dev para 'secret123'
+    // bcrypt compare; bypass de desarrollo para 'secret123' solo fuera de producción.
+    const devBypass = process.env.NODE_ENV !== 'production' && password === 'secret123';
     const isPasswordValid =
-      password === 'secret123' ||
-      (await bcrypt.compare(password, user.password_hash).catch(() => false));
+      devBypass || (await bcrypt.compare(password, user.password_hash).catch(() => false));
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciales inválidas');
@@ -72,37 +72,7 @@ export class AuthService {
       });
     }
 
-    // Obtener condominios y roles asociados al usuario
-    const condosRes = await this.db.query(
-      `SELECT cua.condo_id, c.name as condo_name, cua.role
-       FROM condo_user_access cua
-       JOIN condos c ON c.id = cua.condo_id
-       WHERE cua.user_id = $1 AND cua.is_active = TRUE`,
-      [user.id],
-    );
-
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      isSuperadmin: user.is_superadmin,
-    };
-
-    const token = this.jwtService.sign(payload);
-
-    return {
-      accessToken: token,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        docType: user.doc_type,
-        docNumber: user.doc_number,
-        phone: user.phone,
-        isSuperadmin: user.is_superadmin,
-      },
-      condos: condosRes.rows,
-    };
+    return this.findSessionPayload(user);
   }
 
   /**
@@ -287,6 +257,82 @@ export class AuthService {
     return { sent: true };
   }
 
+  /**
+   * Inicia el reseteo de contraseña. Responde siempre igual (no revela si el
+   * correo existe) y solo envía el enlace si hay una cuenta activa.
+   */
+  async forgotPassword(email: string) {
+    const res = await this.db.query(
+      `SELECT u.id, u.email FROM users u
+        WHERE LOWER(u.email) = LOWER($1) AND u.is_active = TRUE`,
+      [email],
+    );
+    const user = res.rows[0] as { id: string; email: string } | undefined;
+    if (user) {
+      const token = await this.tokens.issue(user.id, 'PASSWORD_RESET', user.email);
+      await this.mail.sendPasswordReset(
+        user.email,
+        `${this.appBaseUrl()}/reset-password?token=${token}`,
+      );
+    }
+    return { ok: true };
+  }
+
+  /** Consume el token, define la nueva contraseña e invalida las sesiones previas. */
+  async resetPassword(token: string, newPassword: string) {
+    const consumed = await this.tokens.consume(token, 'PASSWORD_RESET');
+    if (!consumed) throw new BadRequestException('Token inválido o expirado');
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await this.db.query(
+      `UPDATE users
+          SET password_hash = $1, token_version = token_version + 1, updated_at = NOW()
+        WHERE id = $2`,
+      [hash, consumed.userId],
+    );
+    return { success: true };
+  }
+
+  /**
+   * Acepta una invitación: define la contraseña, marca el correo verificado,
+   * invalida sesiones previas y registra la identidad LOCAL.
+   */
+  async acceptInvitation(token: string, newPassword: string) {
+    const consumed = await this.tokens.consume(token, 'INVITATION');
+    if (!consumed) throw new BadRequestException('La invitación no es válida o expiró');
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await this.db.query(
+      `UPDATE users
+          SET password_hash = $1,
+              email_verified_at = NOW(),
+              token_version = token_version + 1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [hash, consumed.userId],
+    );
+
+    await this.db.query(
+      `INSERT INTO user_identities (user_id, provider, provider_user_id, email_at_provider)
+       SELECT $1, 'LOCAL', NULL, $2
+        WHERE NOT EXISTS (
+          SELECT 1 FROM user_identities WHERE user_id = $1 AND provider = 'LOCAL'
+        )`,
+      [consumed.userId, consumed.email],
+    );
+
+    return { success: true };
+  }
+
+  /** Cierra sesión invalidando los JWT ya emitidos (sube `token_version`). */
+  async logout(userId: string) {
+    await this.db.query(
+      `UPDATE users SET token_version = token_version + 1, updated_at = NOW() WHERE id = $1`,
+      [userId],
+    );
+    return { success: true };
+  }
+
   async updateProfile(userId: string, data: any) {
     if (data.email) {
       const dup = await this.db.query(
@@ -321,8 +367,9 @@ export class AuthService {
     );
     if (res.rows.length === 0) throw new UnauthorizedException('Usuario no encontrado');
 
+    const devBypass = process.env.NODE_ENV !== 'production' && currentPassword === 'secret123';
     const isCurrentValid =
-      currentPassword === 'secret123' ||
+      devBypass ||
       (await bcrypt.compare(currentPassword, res.rows[0].password_hash).catch(() => false));
     if (!isCurrentValid) {
       throw new UnauthorizedException('La contraseña actual no es correcta');

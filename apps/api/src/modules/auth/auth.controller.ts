@@ -18,6 +18,9 @@ import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { EmailOnlyDto } from './dto/email-only.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordTokenDto } from './dto/reset-password-token.dto';
+import { AcceptInvitationDto } from './dto/accept-invitation.dto';
 import { GoogleAuthGuard } from './google-auth.guard';
 
 @ApiTags('Autenticación')
@@ -81,6 +84,33 @@ export class AuthController {
         (typeof response === 'object' && response?.code) || err?.getStatus?.() || 'google_error';
       return res.redirect(`${base}/login?error=${encodeURIComponent(String(code))}`);
     }
+  }
+
+  @Post('password/forgot')
+  @HttpCode(202)
+  @ApiOperation({ summary: 'Solicitar enlace de reseteo (respuesta uniforme, no revela si existe)' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  @Post('password/reset')
+  @ApiOperation({ summary: 'Definir nueva contraseña con el token recibido por correo' })
+  async resetPassword(@Body() dto: ResetPasswordTokenDto) {
+    return this.authService.resetPassword(dto.token, dto.newPassword);
+  }
+
+  @Post('invitation/accept')
+  @ApiOperation({ summary: 'Aceptar una invitación: define la contraseña y verifica el correo' })
+  async acceptInvitation(@Body() dto: AcceptInvitationDto) {
+    return this.authService.acceptInvitation(dto.token, dto.newPassword);
+  }
+
+  @Post('logout')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cerrar sesión (invalida los tokens emitidos)' })
+  async logout(@Request() req: any) {
+    return this.authService.logout(req.user.id);
   }
 
   @Get('me')

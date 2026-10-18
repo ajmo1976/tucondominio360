@@ -74,6 +74,12 @@ export class UsersController {
     return this.usersService.resetPassword(id, dto.password);
   }
 
+  @Post(':id/password-reset-link')
+  @ApiOperation({ summary: 'Enviar por correo un enlace para que el usuario defina su contraseña' })
+  async sendPasswordResetLink(@Param('id') id: string) {
+    return this.usersService.sendPasswordResetLink(id);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Eliminar usuario sin historial (si tiene historial, la API responde 409 y hay que desactivarlo)' })
   async remove(@Param('id') id: string, @Request() req: any) {

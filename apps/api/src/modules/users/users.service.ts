@@ -468,6 +468,20 @@ export class UsersService {
     return { revoked: res.rows.length > 0 };
   }
 
+  /** Envía al usuario un enlace para que él mismo defina su nueva contraseña. */
+  async sendPasswordResetLink(id: string) {
+    const res = await this.db.query(`SELECT id, email FROM users WHERE id = $1`, [id]);
+    if (res.rows.length === 0) throw new NotFoundException('Usuario no encontrado');
+    const user = res.rows[0] as { id: string; email: string };
+
+    const token = await this.tokens.issue(id, 'PASSWORD_RESET', user.email);
+    await this.mail.sendPasswordReset(
+      user.email,
+      `${this.appBaseUrl()}/reset-password?token=${token}`,
+    );
+    return { sent: true };
+  }
+
   /**
    * Actualiza datos del usuario. Si llega `assignments`, reemplaza por completo
    * sus accesos a residencias y las unidades que ocupa (las tablas no tienen FK
