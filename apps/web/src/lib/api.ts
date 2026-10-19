@@ -15,6 +15,7 @@ export interface SessionCondo {
   condo_id: string;
   condo_name: string;
   role: string;
+  permissions?: string[];
 }
 
 export interface SessionUser {
@@ -26,6 +27,7 @@ export interface SessionUser {
   docNumber: string;
   phone: string;
   isSuperadmin: boolean;
+  emailVerified?: boolean;
 }
 
 export interface Session {

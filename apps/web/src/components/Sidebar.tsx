@@ -21,19 +21,45 @@ interface SidebarProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
   isSuperadmin: boolean;
+  permissions?: string[];
 }
 
-export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps) {
+export function Sidebar({ currentTab, onTabChange, isSuperadmin, permissions = [] }: SidebarProps) {
+  // Permisos mínimos requeridos por cada ítem de menú (para usuarios no superadmin).
+  const MENU_PERMISSIONS: Record<string, string[]> = {
+    maintenance: ['MAINTENANCE_MANAGE', 'MAINTENANCE_REPORT'],
+    users: ['USERS_MANAGE'],
+    expenses: ['EXPENSES_MANAGE'],
+    bills: ['BILLING_MANAGE'],
+    payments: ['PAYMENTS_MANAGE'],
+    units: ['UNITS_MANAGE'],
+    access: ['ACCESS_MANAGE'],
+    amenities: ['AMENITIES_MANAGE', 'AMENITIES_BOOK'],
+    announcements: ['ANNOUNCEMENTS_MANAGE', 'ANNOUNCEMENTS_VIEW'],
+    consultations: ['CONSULTATIONS_MANAGE', 'CONSULTATIONS_VOTE'],
+    community: ['COMMUNITY_VIEW'],
+    'my-bills': ['PAYMENTS_REPORT'],
+  };
+
+  /** Filtra los ítems del menú basándose en los permisos del usuario. */
+  function filterMenuItems(items: { id: string; label: string; icon: any }[], perms: string[]): { id: string; label: string; icon: any }[] {
+    if (!perms || perms.length === 0) return items;
+    return items.filter((item) => {
+      const required = MENU_PERMISSIONS[item.id];
+      return !required || required.some((p) => perms.includes(p));
+    });
+  }
+
   // En modo propietario (portal de transparencia y recibos) el menú se reduce
   // a lo que el dueño necesita: su Dashboard General (solo lectura) y sus
   // propios recibos; la administración conserva todos los módulos.
-  const menuItems = isSuperadmin
+  const baseMenuItems = isSuperadmin
     ? [
         { id: 'dashboard', label: 'Dashboard General', icon: LayoutDashboard },
         { id: 'maintenance', label: 'Mantenimiento', icon: ClipboardList },
         { id: 'announcements', label: 'Cartelera Digital', icon: Megaphone },
         { id: 'expenses', label: 'Gastos y Facturas', icon: FileSpreadsheet },
-        { id: 'bills', label: 'Gestación de Recibos', icon: Receipt },
+        { id: 'bills', label: 'Gestión de Recibos', icon: Receipt },
         { id: 'payments', label: 'Conciliación de Pagos', icon: ArrowLeftRight },
         { id: 'units', label: 'Propietarios y Alícuotas', icon: Home },
         { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
@@ -50,6 +76,9 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin }: SidebarProps)
         { id: 'access', label: 'Visitas, Garita y Paquetes', icon: QrCode },
         { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
       ];
+
+  // Filtrar según permisos
+  const menuItems = filterMenuItems(baseMenuItems, permissions);
 
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between shrink-0 min-h-screen">

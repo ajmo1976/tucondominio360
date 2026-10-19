@@ -66,6 +66,8 @@ export default function Home() {
     isSuperadmin: false,
   });
 
+  const [userPermissions, setUserPermissions] = useState<string[]>([]);
+
   // Guard de sesión: sin login real la app no pinta el dashboard.
   useEffect(() => {
     const session = getSession();
@@ -74,6 +76,22 @@ export default function Home() {
       return;
     }
     setAuthReady(true);
+    // Cargar permisos efectivos del usuario autenticado
+    (async () => {
+      try {
+        const meRes = await fetchWithAuth('/auth/me');
+        if (meRes?.user) {
+          const allPerms = (meRes.condos || []).reduce((acc: string[], c: any) => {
+          const p = c.permissions || [];
+          p.forEach((p: string) => { if (!acc.includes(p)) acc.push(p); });
+          return acc;
+        }, []);
+        setUserPermissions(allPerms);
+        }
+      } catch (err) {
+        console.error('Error loading permissions:', err);
+      }
+    })();
   }, [router]);
 
   // Cerrar sesión: limpia el token local y devuelve al login.
@@ -187,6 +205,7 @@ export default function Home() {
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         isSuperadmin={userProfile.isSuperadmin}
+        permissions={userPermissions}
       />
 
       {/* Contenido Principal */}

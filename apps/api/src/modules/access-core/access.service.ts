@@ -86,7 +86,7 @@ export class AccessService {
     const condosRes = isSuperadmin
       ? await this.db.query(`SELECT id FROM condos WHERE is_active = TRUE ORDER BY name`)
       : await this.db.query(
-          `SELECT DISTINCT c.id
+          `SELECT DISTINCT c.id, c.name
              FROM condos c
             WHERE c.is_active = TRUE
               AND (

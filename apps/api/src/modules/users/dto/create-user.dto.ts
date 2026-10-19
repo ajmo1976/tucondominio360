@@ -12,6 +12,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { OCCUPANT_ROLES } from '../occupant-role.logic';
 
 /** Roles del enum condo_role que puede tener un usuario dentro de una residencia. */
 export const CONDO_ROLES = [
@@ -30,9 +31,21 @@ export const CONDO_ROLES = [
 export const DOC_TYPES = ['V', 'E', 'J', 'G', 'P'] as const;
 
 export class UnitAssignmentDto {
-  @ApiProperty({ description: 'ID de la unidad inmobiliaria' })
+  @ApiProperty({ description: 'ID de la unidad inmobiliaria (en BD mapea a property_unit_id)' })
   @IsUUID()
   unitId: string;
+
+  @ApiProperty({ enum: OCCUPANT_ROLES, description: 'Rol de ocupante por unidad' })
+  @IsIn(OCCUPANT_ROLES)
+  occupantRole: string = 'OWNER';
+
+  @ApiPropertyOptional({ description: 'Es el contacto principal para cobs/utilidades' })
+  @IsOptional()
+  isPrimaryContact?: boolean;
+
+  @ApiPropertyOptional({ description: 'Es el destinatario de las boletas' })
+  @IsOptional()
+  isBillingRecipient?: boolean;
 }
 
 export class CondoAssignmentDto {

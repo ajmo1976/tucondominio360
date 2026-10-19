@@ -7,7 +7,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Optional } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { AccessService } from '../access-core';
 import { DatabaseService } from '../../database/database.service';
 import { TokensService } from './tokens.service';
 import { MailService } from '../mail/mail.service';
@@ -30,6 +32,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly tokens: TokensService,
     private readonly mail: MailService,
+    @Optional()
+    private readonly access?: AccessService,
   ) {}
 
   private readonly logger = new Logger(AuthService.name);
@@ -190,13 +194,22 @@ export class AuthService {
 
   /** Arma la sesión (JWT + usuario + residencias) para un usuario ya validado. */
   private async findSessionPayload(user: any) {
-    const condosRes = await this.db.query(
-      `SELECT cua.condo_id, c.name as condo_name, cua.role
-       FROM condo_user_access cua
-       JOIN condos c ON c.id = cua.condo_id
-       WHERE cua.user_id = $1 AND cua.is_active = TRUE`,
-      [user.id],
-    );
+    let condosRes: any;
+    if (user.is_superadmin) {
+      // Superadmin: acceso a todos los condominios activos
+      condosRes = await this.db.query(
+        `SELECT id as condo_id, name as condo_name, NULL as role
+         FROM condos WHERE is_active = TRUE ORDER BY name`,
+      );
+    } else {
+      condosRes = await this.db.query(
+        `SELECT cua.condo_id, c.name as condo_name, cua.role
+         FROM condo_user_access cua
+         JOIN condos c ON c.id = cua.condo_id
+         WHERE cua.user_id = $1 AND cua.is_active = TRUE`,
+        [user.id],
+      );
+    }
 
     const token = this.jwtService.sign({
       sub: user.id,
@@ -233,28 +246,63 @@ export class AuthService {
       throw new UnauthorizedException('Usuario no encontrado');
     }
 
-    const condosRes = await this.db.query(
-      `SELECT cua.condo_id, c.name as condo_name, cua.role
-       FROM condo_user_access cua
-       JOIN condos c ON c.id = cua.condo_id
-       WHERE cua.user_id = $1 AND cua.is_active = TRUE`,
-      [userId],
-    );
+    const user = userRes.rows[0];
+
+    // Si AccessService está disponible, usamos resolveUserAccess que ya maneja superadmin
+    let condosEnriquecidos: any[];
+    if (this.access) {
+      const access = await this.access.resolveUserAccess(userId);
+      condosEnriquecidos = access.condos;
+    } else {
+      // Fallback: queries directas (solo condo_user_access, no maneja superadmin)
+      const condosRes = await this.db.query(
+        `SELECT cua.condo_id, c.name as condo_name, cua.role
+         FROM condo_user_access cua
+         JOIN condos c ON c.id = cua.condo_id
+         WHERE cua.user_id = $1 AND cua.is_active = TRUE`,
+        [userId],
+      );
+
+      let tenantRole: string | null = null;
+      const tuRes = await this.db.query(
+        `SELECT role FROM tenant_users WHERE user_id = $1 AND is_active = TRUE`,
+        [userId],
+      );
+      if (tuRes.rows.length > 0) {
+        tenantRole = tuRes.rows[0].role;
+      }
+
+      const condosPromises = condosRes.rows.map(async (cuaRow: any) => {
+        const condoId = cuaRow.condo_id;
+        const isStaff = user.is_superadmin || tenantRole !== 'VIEWER';
+        return Promise.resolve({
+          condoId,
+          condoName: cuaRow.condo_name,
+          role: cuaRow.role,
+          tenantRole,
+          isStaff,
+          permissions: [],
+          source: 'NONE',
+        } as any);
+      });
+
+      condosEnriquecidos = (await Promise.all(condosPromises)) as any[];
+    }
 
     const identitiesRes = await this.db.query(
       `SELECT DISTINCT provider FROM user_identities WHERE user_id = $1 ORDER BY provider`,
       [userId],
     );
 
-    const { email_verified_at, ...user } = userRes.rows[0];
+    const { email_verified_at, ...userData } = userRes.rows[0];
 
     return {
       user: {
-        ...user,
+        ...userData,
         emailVerified: !!email_verified_at,
         authProviders: identitiesRes.rows.map((r: any) => r.provider),
       },
-      condos: condosRes.rows,
+      condos: condosEnriquecidos,
     };
   }
 

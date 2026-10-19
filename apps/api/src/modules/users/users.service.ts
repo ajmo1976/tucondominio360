@@ -10,6 +10,7 @@ import { TokensService } from '../auth/tokens.service';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { assertOccupantRole, OCCUPANT_ROLES } from './occupant-role.logic';
 
 /**
  * Tablas que bloquean el borrado físico de un usuario (FK RESTRICT). Si el
@@ -400,11 +401,11 @@ export class UsersService {
         for (const ua of a.units || []) {
           await client.query(
             `INSERT INTO unit_occupants (property_unit_id, user_id, role, is_primary_contact, is_billing_recipient)
-             VALUES ($1, $2, $3, TRUE, TRUE)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (property_unit_id, user_id, role) DO UPDATE SET
-               is_primary_contact = TRUE,
-               is_billing_recipient = TRUE`,
-            [ua.unitId, userId, a.role],
+               is_primary_contact = COALESCE($4, is_primary_contact),
+               is_billing_recipient = COALESCE($5, is_billing_recipient)`,
+            [ua.unitId, userId, ua.occupantRole ?? 'OWNER', ua.isPrimaryContact ?? true, ua.isBillingRecipient ?? true],
           );
         }
       }
