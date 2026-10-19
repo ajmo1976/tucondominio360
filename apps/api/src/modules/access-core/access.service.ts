@@ -51,6 +51,7 @@ export class AccessService {
 
     return composeAccess({
       isSuperadmin,
+      condoId,
       tenantId,
       tenantRole,
       condoRole: null,

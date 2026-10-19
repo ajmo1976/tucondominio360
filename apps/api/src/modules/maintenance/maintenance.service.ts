@@ -41,7 +41,7 @@ export class MaintenanceService {
 
   /** Reportar nueva incidencia */
   async createTicket(user: any, dto: CreateTicketDto) {
-    await this.assertCondoAccess(user, dto.condoId);
+    await this.access.assertCondoPermission(user.id, dto.condoId, 'MAINTENANCE_MANAGE', 'MAINTENANCE_REPORT');
 
     const ticketCode = this.generateTicketCode(dto.condoId);
 
@@ -95,7 +95,7 @@ export class MaintenanceService {
       q?: string;
     } = {},
   ) {
-    await this.assertCondoAccess(user, condoId);
+    await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE', 'MAINTENANCE_REPORT');
 
     const params: any[] = [condoId];
     const where: string[] = [`mt.condo_id = $1`];
@@ -160,7 +160,7 @@ export class MaintenanceService {
 
   /** Obtener un ticket por ID */
   async getTicket(user: any, condoId: string, ticketId: string) {
-    await this.assertCondoAccess(user, condoId);
+    await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE', 'MAINTENANCE_REPORT');
 
     const res = await this.db.query(
       `SELECT mt.*,
@@ -206,7 +206,7 @@ export class MaintenanceService {
 
   /** Actualizar estado y datos del ticket */
   async updateTicket(user: any, condoId: string, ticketId: string, dto: UpdateTicketDto) {
-    await this.assertCondoAccess(user, condoId);
+    await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE');
 
     // Verificar que el ticket existe y pertenece al condo
     const ticketCheck = await this.db.query(`SELECT id, status, assigned_to_user_id FROM maintenance_tickets WHERE id = $1 AND condo_id = $2`, [ticketId, condoId]);
@@ -281,7 +281,6 @@ export class MaintenanceService {
 
   /** Eliminar un ticket (solo quien puede gestionar mantenimiento) */
   async deleteTicket(user: any, condoId: string, ticketId: string) {
-    await this.assertCondoAccess(user, condoId);
     await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE');
 
     const res = await this.db.query(
@@ -301,7 +300,7 @@ export class MaintenanceService {
 
   /** Agregar comentario a un ticket */
   async addComment(user: any, condoId: string, dto: CreateTicketCommentDto) {
-    await this.assertCondoAccess(user, condoId);
+    await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE', 'MAINTENANCE_REPORT');
 
     // Verificar que el ticket existe
     const ticketCheck = await this.db.query(`SELECT id, condo_id FROM maintenance_tickets WHERE id = $1`, [dto.ticketId]);
@@ -331,7 +330,7 @@ export class MaintenanceService {
 
   /** Listar comentarios de un ticket */
   async listComments(user: any, condoId: string, ticketId: string) {
-    await this.assertCondoAccess(user, condoId);
+    await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE', 'MAINTENANCE_REPORT');
 
     const res = await this.db.query(
       `SELECT tc.id, tc.comment, tc.is_internal_only, tc.created_at,
@@ -354,7 +353,7 @@ export class MaintenanceService {
 
   /** KPIs por condominio */
   async getKpis(user: any, condoId: string) {
-    await this.assertCondoAccess(user, condoId);
+    await this.access.assertCondoPermission(user.id, condoId, 'MAINTENANCE_MANAGE', 'MAINTENANCE_REPORT');
 
     const res = await this.db.query(
       `SELECT

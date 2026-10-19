@@ -13,6 +13,7 @@ import {
 export type AccessSource = 'SUPERADMIN' | 'TENANT' | 'CONDO' | 'NONE';
 
 export interface CondoAccess {
+  condoId: string;
   isSuperadmin: boolean;
   tenantId: string | null;
   tenantRole: TenantRole | null;
@@ -25,6 +26,7 @@ export interface CondoAccess {
 
 export interface ComposeAccessInput {
   isSuperadmin: boolean;
+  condoId?: string;
   tenantId?: string | null;
   tenantRole: TenantRole | null;
   condoRole: CondoRole | null;
@@ -98,6 +100,7 @@ export function composeAccess(input: ComposeAccessInput): CondoAccess {
     (condoRole != null && STAFF_CONDO_ROLES.includes(condoRole));
 
   return {
+    condoId: input.condoId ?? '',
     isSuperadmin,
     tenantId: input.tenantId ?? null,
     tenantRole,
