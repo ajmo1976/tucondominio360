@@ -403,8 +403,8 @@ export class UsersService {
             `INSERT INTO unit_occupants (property_unit_id, user_id, role, is_primary_contact, is_billing_recipient)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (property_unit_id, user_id, role) DO UPDATE SET
-               is_primary_contact = COALESCE($4, is_primary_contact),
-               is_billing_recipient = COALESCE($5, is_billing_recipient)`,
+               is_primary_contact = COALESCE($4, unit_occupants.is_primary_contact),
+               is_billing_recipient = COALESCE($5, unit_occupants.is_billing_recipient)`,
             [ua.unitId, userId, ua.occupantRole ?? 'OWNER', ua.isPrimaryContact ?? true, ua.isBillingRecipient ?? true],
           );
         }
@@ -548,11 +548,11 @@ export class UsersService {
           for (const ua of a.units || []) {
             await client.query(
               `INSERT INTO unit_occupants (property_unit_id, user_id, role, is_primary_contact, is_billing_recipient)
-               VALUES ($1, $2, $3, TRUE, TRUE)
+               VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (property_unit_id, user_id, role) DO UPDATE SET
-                 is_primary_contact = TRUE,
-                 is_billing_recipient = TRUE`,
-              [ua.unitId, id, a.role],
+                 is_primary_contact = COALESCE($4, unit_occupants.is_primary_contact),
+                 is_billing_recipient = COALESCE($5, unit_occupants.is_billing_recipient)`,
+              [ua.unitId, id, ua.occupantRole ?? 'OWNER', ua.isPrimaryContact ?? true, ua.isBillingRecipient ?? true],
             );
           }
         }

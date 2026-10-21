@@ -17,12 +17,10 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SuperAdminGuard } from './guards/super-admin.guard';
-import { ModuleEnabledGuard, RequireModule } from '../modules';
 
 @ApiTags('Usuarios y Accesos')
 @Controller('users')
-@UseGuards(AuthGuard('jwt'), SuperAdminGuard, ModuleEnabledGuard)
-@RequireModule('USERS')
+@UseGuards(AuthGuard('jwt'), SuperAdminGuard)
 @ApiBearerAuth()
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

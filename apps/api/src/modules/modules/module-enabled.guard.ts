@@ -10,14 +10,18 @@ import { MODULE_ENABLED_KEY } from './require-module.decorator';
 
 /**
  * Extrae el `condoId` del request.
- * Prefiere: params.condoId > query.condoId > body.condoId > params.id
+ * Prefiere: params.condoId > query.condoId > body.condoId.
+ *
+ * OJO: no se cae a `params.id`, porque en la mayoría de controladores `:id`
+ * es el id de un recurso (ticket, consulta, pago, usuario…), no de una
+ * residencia; usarlo generaba falsos "condo no encontrado". Si el request no
+ * trae un condoId explícito, el guard no bloquea y el controlador lo resuelve.
  */
 export function extractCondoId(req: any): string | undefined {
   return (
     req?.params?.condoId ??
     req?.query?.condoId ??
     req?.body?.condoId ??
-    req?.params?.id ??
     undefined
   );
 }
