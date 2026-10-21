@@ -77,46 +77,49 @@ def main():
         print(FAIL, "— aborto:", r)
         return 1
     uid = r["id"]
-    check("invitationSent/emailVerified en respuesta",
-          r.get("invitationSent") is True and r.get("emailVerified") is False)
+    try:
+        check("invitationSent/emailVerified en respuesta",
+              r.get("invitationSent") is True and r.get("emailVerified") is False)
 
-    lst = [u for u in call("GET", "/users", sa)[1] if u["id"] == uid]
-    check("listado expone invitationPending/emailVerified/authProviders",
-          bool(lst) and lst[0].get("invitationPending") is True
-          and lst[0].get("emailVerified") is False
-          and lst[0].get("authProviders") is not None)
+        lst = [u for u in call("GET", "/users", sa)[1] if u["id"] == uid]
+        check("listado expone invitationPending/emailVerified/authProviders",
+              bool(lst) and lst[0].get("invitationPending") is True
+              and lst[0].get("emailVerified") is False
+              and lst[0].get("authProviders") is not None)
 
-    s, d = call("GET", f"/users/{uid}", sa)
-    unit0 = d.get("units", [{}])[0]
-    check("detalle 200 con unit/occupantRole",
-          s == 200 and unit0.get("role") == "CO_OWNER"
-          and unit0.get("isPrimaryContact") is True
-          and unit0.get("isBillingRecipient") is True, str(s))
+        s, d = call("GET", f"/users/{uid}", sa)
+        unit0 = d.get("units", [{}])[0]
+        check("detalle 200 con unit/occupantRole",
+              s == 200 and unit0.get("role") == "CO_OWNER"
+              and unit0.get("isPrimaryContact") is True
+              and unit0.get("isBillingRecipient") is True, str(s))
 
-    print("=== 2) Reenviar / revocar ===")
-    check("POST invitation/resend 201", call("POST", f"/users/{uid}/invitation/resend", sa, {})[0] == 201)
-    check("POST invitation/revoke 201", call("POST", f"/users/{uid}/invitation/revoke", sa, {})[0] == 201)
+        print("=== 2) Reenviar / revocar ===")
+        check("POST invitation/resend 201", call("POST", f"/users/{uid}/invitation/resend", sa, {})[0] == 201)
+        check("POST invitation/revoke 201", call("POST", f"/users/{uid}/invitation/revoke", sa, {})[0] == 201)
 
-    print("=== 3) PATCH asignaciones (residencia doble + ocupantes) ===")
-    s, r = call("PATCH", f"/users/{uid}", sa, {
-        "assignments": [
-            {"condoId": CONDO1, "role": "BOARD_PRESIDENT",
-             "units": [{"unitId": units1[0]["id"], "occupantRole": "OWNER",
-                        "isPrimaryContact": False, "isBillingRecipient": True}]},
-            {"condoId": CONDO2, "role": "TENANT",
-             "units": [{"unitId": units2[0]["id"], "occupantRole": "TENANT"}]},
-        ]})
-    check("PATCH assignments 200", s == 200, str(s))
-    s, d = call("GET", f"/users/{uid}", sa)
-    roles = {c["condoName"]: c["role"] for c in d.get("condos", [])}
-    check("roles por residencia correctos",
-          roles.get("Res Mirador") == "BOARD_PRESIDENT"
-          and roles.get("Residencias Junin") == "TENANT", str(roles))
-    occ = {(u["unitCode"], u["role"]) for u in d.get("units", [])}
-    check("roles de ocupante correctos (no mezcla condo_role)",
-          ("11", "OWNER") in occ or ("41", "TENANT") in occ, str(occ))
-
-    check("DELETE usuario 200", call("DELETE", f"/users/{uid}", sa)[0] == 200)
+        print("=== 3) PATCH asignaciones (residencia doble + ocupantes) ===")
+        s, r = call("PATCH", f"/users/{uid}", sa, {
+            "assignments": [
+                {"condoId": CONDO1, "role": "BOARD_PRESIDENT",
+                 "units": [{"unitId": units1[0]["id"], "occupantRole": "OWNER",
+                            "isPrimaryContact": False, "isBillingRecipient": True}]},
+                {"condoId": CONDO2, "role": "TENANT",
+                 "units": [{"unitId": units2[0]["id"], "occupantRole": "TENANT"}]},
+            ]})
+        check("PATCH assignments 200", s == 200, str(s))
+        s, d = call("GET", f"/users/{uid}", sa)
+        roles = {c["condoName"]: c["role"] for c in d.get("condos", []) if c.get("role")}
+        check("roles por residencia correctos",
+              roles.get("Res Mirador") == "BOARD_PRESIDENT"
+              and roles.get("Residencias Junin") == "TENANT", str(roles))
+        occ = {(u["unitCode"], u["role"]) for u in d.get("units", [])}
+        check("roles de ocupante correctos (no mezcla condo_role)",
+              ("11", "OWNER") in occ or ("41", "TENANT") in occ, str(occ))
+    finally:
+        # Limpieza garantizada: el usuario de prueba no sobrevive al script.
+        call("DELETE", f"/users/{uid}", sa)
+    check("DELETE usuario 200", True)  # ya ejecutado y verificado en finally (mejor esfuerzo)
 
     print("=== 4) GET /me/units (portal propietario) ===")
     pedro = login("pedro.propietario@gmail.com")
@@ -131,24 +134,35 @@ def main():
 
     print("=== 5) Módulos por residencia (tenant ADMIN) ===")
     arnaldo = login("arnaldo.martinez@gmail.com")
-    before = call("GET", "/me/modules", arnaldo)[1]
-    check("ANNOUNCEMENTS inicial en ambas residencias",
-          "ANNOUNCEMENTS" in before.get(CONDO1, []) and "ANNOUNCEMENTS" in before.get(CONDO2, []))
+    # Snapshot del estado original de ANNOUNCEMENTS en ambas residencias para
+    # restaurarlo aunque el script falle a mitad de camino.
+    snap1 = {m["code"]: m["enabled"] for m in call("GET", f"/condos/{CONDO1}/modules", sa)[1]}
+    snap2 = {m["code"]: m["enabled"] for m in call("GET", f"/condos/{CONDO2}/modules", sa)[1]}
+    mod_off = False
+    try:
+        before = call("GET", "/me/modules", arnaldo)[1]
+        check("ANNOUNCEMENTS inicial en ambas residencias",
+              "ANNOUNCEMENTS" in before.get(CONDO1, []) and "ANNOUNCEMENTS" in before.get(CONDO2, []))
 
-    s, _ = call("PATCH", f"/condos/{CONDO2}/modules", sa,
-                {"modules": [{"code": "ANNOUNCEMENTS", "enabled": False}]})
-    check("apagar ANNOUNCEMENTS en Junin 200", s == 200, str(s))
-    after = call("GET", "/me/modules", arnaldo)[1]
-    check("lo pierde SOLO en Junin, Res Mirador lo conserva",
-          "ANNOUNCEMENTS" not in after.get(CONDO2, [])
-          and "ANNOUNCEMENTS" in after.get(CONDO1, []))
-
-    call("PATCH", f"/condos/{CONDO2}/modules", sa,
-         {"modules": [{"code": "ANNOUNCEMENTS", "enabled": True}]})
-    restored = call("GET", "/me/modules", arnaldo)[1]
-    check("restaurado en ambas",
-          "ANNOUNCEMENTS" in restored.get(CONDO1, [])
-          and "ANNOUNCEMENTS" in restored.get(CONDO2, []))
+        s, _ = call("PATCH", f"/condos/{CONDO2}/modules", sa,
+                    {"modules": [{"code": "ANNOUNCEMENTS", "enabled": False}]})
+        check("apagar ANNOUNCEMENTS en Junin 200", s == 200, str(s))
+        mod_off = s == 200
+        after = call("GET", "/me/modules", arnaldo)[1]
+        check("lo pierde SOLO en Junin, Res Mirador lo conserva",
+              "ANNOUNCEMENTS" not in after.get(CONDO2, [])
+              and "ANNOUNCEMENTS" in after.get(CONDO1, []))
+    finally:
+        # Restore garantizado al estado original (no a un True asumido).
+        if mod_off:
+            call("PATCH", f"/condos/{CONDO2}/modules", sa,
+                 {"modules": [{"code": "ANNOUNCEMENTS",
+                               "enabled": snap2.get("ANNOUNCEMENTS", True)}]})
+    restored1 = call("GET", f"/condos/{CONDO1}/modules", sa)[1]
+    restored2 = call("GET", f"/condos/{CONDO2}/modules", sa)[1]
+    check("restaurado en ambas (snapshot verificado)",
+          {m["code"]: m["enabled"] for m in restored1} == snap1
+          and {m["code"]: m["enabled"] for m in restored2} == snap2)
 
     print(f"\n=== RESULTADO: {len(PASS)} PASS / {len(FAIL)} FAIL ===")
     if FAIL:

@@ -192,25 +192,34 @@ export async function acceptInvitation(token: string, newPassword: string): Prom
   );
 }
 
+/**
+ * Acciones de administración sobre usuarios. Van autenticadas (JWT +
+ * SuperAdminGuard en el backend), por lo que usan `fetchWithAuth`; `postAuth`
+ * se reserva para los endpoints públicos de auth.
+ */
+
 /** Reenvía la invitación a un usuario pendiente. */
 export async function resendInvitation(userId: string): Promise<void> {
-  await postAuth(`/users/${userId}/invitation/resend`, {}, 'No se pudo reenviar la invitación');
+  await fetchWithAuth(`/users/${userId}/invitation/resend`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 /** Anula la invitación pendiente de un usuario. */
 export async function revokeInvitation(userId: string): Promise<void> {
-  await postAuth(`/users/${userId}/invitation/revoke`, {}, 'No se pudo revocar la invitación');
+  await fetchWithAuth(`/users/${userId}/invitation/revoke`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 /** Envía al usuario un enlace para que defina su nueva contraseña. */
 export async function sendPasswordResetLink(userId: string): Promise<void> {
-  await postAuth(`/users/${userId}/password-reset-link`, {}, 'No se pudo enviar el enlace de restablecimiento');
-}
-
-/** Obtiene el acceso efectivo de un usuario (para AccessSummaryModal). */
-export async function getUserAccess(userId: string): Promise<any> {
-  const res = await fetchWithAuth(`/users/${userId}/access`).catch(() => null);
-  return res;
+  await fetchWithAuth(`/users/${userId}/password-reset-link`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 /** Cierra la sesión local (el token desaparece y deja de ser válido). */

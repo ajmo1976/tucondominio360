@@ -39,7 +39,10 @@ interface CondoUnit {
 interface CondoAccess {
   condoId: string;
   condoName: string;
-  role: string;
+  /** Rol principal; `null` cuando el acceso es solo por empresa (tenant). */
+  role: string | null;
+  /** Todos los roles del usuario en la residencia (puede tener varios). */
+  roles?: string[];
   accessActive: boolean;
   units: number;
   tenantRole?: string;
@@ -183,7 +186,7 @@ export function UsersView() {
       )) return false;
 
       if (filters.condoId && !u.condos.some(c => c.condoId === filters.condoId)) return false;
-      if (filters.role && !u.condos.some(c => c.role === filters.role)) return false;
+      if (filters.role && !u.condos.some(c => (c.roles?.length ? c.roles : [c.role]).includes(filters.role))) return false;
       if (filters.status) {
         const status = getAccountStatus(u);
         if (status !== filters.status) return false;
@@ -308,21 +311,6 @@ export function UsersView() {
         )}
       </div>
 
-      {toast && (
-        <div className={`p-3 rounded-xl text-sm font-medium flex items-center gap-2 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-            : 'bg-rose-50 border border-rose-200 text-rose-800'
-        }`}>
-          {toast.type === 'success' ? (
-            <CheckCircle className="w-4 h-4 text-emerald-500" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-rose-500" />
-          )}
-          {toast.message}
-        </div>
-      )}
-
       {/* Barra de filtros */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 space-y-4">
         <div className="relative max-w-sm">
@@ -410,7 +398,7 @@ export function UsersView() {
                   <th className="px-5 py-3 font-bold">Residencias y roles</th>
                   <th className="px-5 py-3 font-bold">Estado</th>
                   <th className="px-5 py-3 font-bold">Proveedor</th>
-                  <th className="px-5 py-3 font-bold">Último ingreso</th>
+                  <th className="px-5 py-3 font-bold">Creado</th>
                   <th className="px-5 py-3 font-bold text-right">Acciones</th>
                 </tr>
               </thead>
@@ -454,15 +442,30 @@ export function UsersView() {
                               Sin accesos
                             </span>
                           )}
-                          {u.condos.map((c) => (
-                            <span
-                              key={`${u.id}-${c.condoId}`}
-                              className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold"
-                            >
-                              {ROLE_LABELS[c.role] || c.role} · {c.condoName}
-                              {c.units > 0 && <span className="text-emerald-500"> ({c.units})</span>}
-                            </span>
-                          ))}
+                          {u.condos.map((c) => {
+                            const condoRoles = (c.roles?.length ? c.roles : [c.role]).filter(
+                              (r): r is string => Boolean(r),
+                            );
+                            return (
+                              <span
+                                key={`${u.id}-${c.condoId}-${condoRoles.join('_') || 'tenant'}`}
+                                className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${
+                                  condoRoles.length > 0
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                    : 'bg-blue-50 border-blue-200 text-blue-700'
+                                }`}
+                              >
+                                {condoRoles.length > 0
+                                  ? `${condoRoles.map((r) => ROLE_LABELS[r] || r).join(' + ')} · ${c.condoName}`
+                                  : `Empresa (${c.tenantRole || 'staff'}) · ${c.condoName}`}
+                                {c.units > 0 && (
+                                  <span className={condoRoles.length > 0 ? 'text-emerald-500' : 'text-blue-500'}>
+                                    {' '}({c.units})
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })}
                         </div>
                       </td>
                       <td className="px-5 py-3">

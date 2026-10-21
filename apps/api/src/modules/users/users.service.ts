@@ -94,11 +94,12 @@ export class UsersService {
     const ids = users.map((u) => u.id);
 
     const accessesRes = await this.db.query(
-      `SELECT cua.user_id, c.id AS condo_id, c.name AS condo_name, cua.role, cua.is_active
+      `SELECT cua.user_id, c.id AS condo_id, c.name AS condo_name, c.tenant_id,
+              cua.role, cua.is_active
        FROM condo_user_access cua
        JOIN condos c ON c.id = cua.condo_id
        WHERE cua.user_id = ANY($1)
-       ORDER BY c.name`,
+       ORDER BY c.name, cua.role`,
       [ids],
     );
 
@@ -111,25 +112,88 @@ export class UsersService {
       [ids],
     );
 
+    // Membresías de empresa administradora: dan acceso a todo el portafolio
+    // (la misma pata que resuelve /me/access vía composeAccess).
+    const tenantsRes = await this.db.query(
+      `SELECT user_id, tenant_id, role FROM tenant_users
+        WHERE user_id = ANY($1) AND is_active = TRUE`,
+      [ids],
+    );
+
+    const portfolioRes =
+      tenantsRes.rows.length > 0
+        ? await this.db.query(
+            `SELECT tu.user_id, c.id AS condo_id, c.name AS condo_name, c.tenant_id,
+                    tu.role AS tenant_role
+               FROM tenant_users tu
+               JOIN condos c ON c.tenant_id = tu.tenant_id
+              WHERE tu.user_id = ANY($1) AND tu.is_active = TRUE
+                AND c.is_active = TRUE
+              ORDER BY c.name`,
+            [ids],
+          )
+        : { rows: [] as any[] };
+
     const byAccess: Record<string, any[]> = {};
     for (const a of accessesRes.rows) (byAccess[a.user_id] ||= []).push(a);
 
     const byUnits: Record<string, Record<string, number>> = {};
     for (const o of occupantsRes.rows) (byUnits[o.user_id] ||= {})[o.condo_id] = o.units;
 
+    const tenantRoleOf = new Map<string, string>();
+    for (const t of tenantsRes.rows) tenantRoleOf.set(`${t.user_id}|${t.tenant_id}`, t.role);
+
+    const portfolioByUser: Record<string, any[]> = {};
+    for (const p of portfolioRes.rows) (portfolioByUser[p.user_id] ||= []).push(p);
+
     const state = await this.accountStateFor(ids);
 
-    return users.map((u) => ({
-      ...u,
-      ...state[u.id],
-      condos: (byAccess[u.id] || []).map((a) => ({
-        condoId: a.condo_id,
-        condoName: a.condo_name,
-        role: a.role,
-        accessActive: a.is_active,
-        units: byUnits[u.id]?.[a.condo_id] || 0,
-      })),
-    }));
+    return users.map((u) => {
+      // Una entrada por residencia: un usuario puede tener varios roles en la
+      // misma (la tabla lo permite) y la UI necesita agruparlos por condo.
+      const entries: any[] = [];
+      const byCondo = new Map<string, any>();
+      for (const a of byAccess[u.id] || []) {
+        let entry = byCondo.get(a.condo_id);
+        if (!entry) {
+          entry = {
+            condoId: a.condo_id,
+            condoName: a.condo_name,
+            role: null,
+            roles: [],
+            accessActive: false,
+            tenantRole: tenantRoleOf.get(`${u.id}|${a.tenant_id}`) ?? null,
+            units: byUnits[u.id]?.[a.condo_id] || 0,
+          };
+          byCondo.set(a.condo_id, entry);
+          entries.push(entry);
+        }
+        if (!entry.roles.includes(a.role)) entry.roles.push(a.role);
+        if (a.is_active) entry.accessActive = true;
+      }
+      for (const entry of entries) entry.role = entry.roles[0] ?? null;
+
+      // Portafolio de la empresa (sin fila propia en condo_user_access).
+      for (const p of portfolioByUser[u.id] || []) {
+        if (byCondo.has(p.condo_id)) continue;
+        entries.push({
+          condoId: p.condo_id,
+          condoName: p.condo_name,
+          role: null,
+          roles: [],
+          accessActive: true,
+          tenantRole: tenantRoleOf.get(`${u.id}|${p.tenant_id}`) ?? p.tenant_role,
+          units: byUnits[u.id]?.[p.condo_id] || 0,
+        });
+      }
+      entries.sort((a, b) => (a.condoName || '').localeCompare(b.condoName || ''));
+
+      return {
+        ...u,
+        ...state[u.id],
+        condos: entries,
+      };
+    });
   }
 
   /** Detalle de un usuario con sus residencias y las unidades que ocupa. */
@@ -144,13 +208,36 @@ export class UsersService {
     const user = userRes.rows[0];
 
     const accessesRes = await this.db.query(
-      `SELECT cua.condo_id, c.name AS condo_name, cua.role, cua.is_active
+      `SELECT cua.condo_id, c.name AS condo_name, c.tenant_id, cua.role, cua.is_active
        FROM condo_user_access cua
        JOIN condos c ON c.id = cua.condo_id
        WHERE cua.user_id = $1
-       ORDER BY c.name`,
+       ORDER BY c.name, cua.role`,
       [id],
     );
+
+    // Membresía de empresa administradora: da acceso a todo su portafolio de
+    // residencias aunque no exista fila explícita en condo_user_access
+    // (misma pata que resuelve /me/access vía composeAccess).
+    const tenantsRes = await this.db.query(
+      `SELECT tenant_id, role FROM tenant_users
+        WHERE user_id = $1 AND is_active = TRUE`,
+      [id],
+    );
+    const tenantRoleOf = new Map<string, string>(
+      tenantsRes.rows.map((t: any) => [t.tenant_id, t.role]),
+    );
+
+    const portfolioRes =
+      tenantsRes.rows.length > 0
+        ? await this.db.query(
+            `SELECT c.id, c.name, c.tenant_id
+               FROM condos c
+              WHERE c.tenant_id = ANY($1) AND c.is_active = TRUE
+              ORDER BY c.name`,
+            [tenantsRes.rows.map((t: any) => t.tenant_id)],
+          )
+        : { rows: [] as any[] };
 
     const unitsRes = await this.db.query(
       `SELECT uo.property_unit_id, uo.role AS occupant_role, uo.is_primary_contact,
@@ -164,15 +251,48 @@ export class UsersService {
 
     const state = await this.accountStateFor([id]);
 
+    // Una entrada por residencia agrupa todos sus roles (un usuario puede
+    // tener varios en la misma) para no duplicar claves en la UI.
+    const condoEntries: any[] = [];
+    const byCondo = new Map<string, any>();
+    for (const a of accessesRes.rows) {
+      let entry = byCondo.get(a.condo_id);
+      if (!entry) {
+        entry = {
+          condoId: a.condo_id,
+          condoName: a.condo_name,
+          role: null,
+          roles: [] as string[],
+          active: false,
+          tenantRole: tenantRoleOf.get(a.tenant_id) ?? null,
+        };
+        byCondo.set(a.condo_id, entry);
+        condoEntries.push(entry);
+      }
+      if (!entry.roles.includes(a.role)) entry.roles.push(a.role);
+      if (a.is_active) entry.active = true;
+    }
+    for (const entry of condoEntries) entry.role = entry.roles[0] ?? null;
+
+    // Residencias del portafolio del tenant sin fila propia de acceso.
+    for (const c of portfolioRes.rows) {
+      if (byCondo.has(c.id)) continue;
+      const entry = {
+        condoId: c.id,
+        condoName: c.name,
+        role: null,
+        roles: [] as string[],
+        active: true,
+        tenantRole: tenantRoleOf.get(c.tenant_id) ?? null,
+      };
+      condoEntries.push(entry);
+    }
+    condoEntries.sort((a, b) => (a.condoName || '').localeCompare(b.condoName || ''));
+
     return {
       ...user,
       ...state[id],
-      condos: accessesRes.rows.map((a) => ({
-        condoId: a.condo_id,
-        condoName: a.condo_name,
-        role: a.role,
-        active: a.is_active,
-      })),
+      condos: condoEntries,
       units: unitsRes.rows.map((u) => ({
         unitId: u.property_unit_id,
         unitCode: u.unit_code,

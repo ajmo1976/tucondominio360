@@ -79,9 +79,11 @@ interface UserRow {
   phone: string;
   is_active: boolean;
   is_superadmin: boolean;
-  condos: Array<{ condoId: string; role: string }>;
+  /** Una entrada por residencia; `role` es null si el acceso es solo por empresa. */
+  condos: Array<{ condoId: string; condoName?: string; role: string | null; roles?: string[] }>;
   units?: Array<{
     unitId: string;
+    unitCode?: string;
     condoId: string;
     /** El API de GET /users/:id lo devuelve como `role`; el de detalle como `occupantRole`. */
     role?: string;
@@ -126,6 +128,18 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
 
   // asignaciones: residencia → { rol condominio, unidades → estado ocupante }
   const [assignments, setAssignments] = useState<Record<string, Assignment>>({});
+  /**
+   * Roles adicionales del usuario en una residencia (el formulario solo puede
+   * editar un rol por residencia). Se conservan al guardar: el submit emite un
+   * assignment extra por cada rol secundario para no perderlos.
+   */
+  const [extraRoles, setExtraRoles] = useState<Record<string, string[]>>({});
+  /**
+   * Unidades que ocupa en residencias sin rol de residencia asignado: al
+   * guardar, `update()` reemplaza todas las asignaciones, así que estas
+   * unidades se quitarían. Se avisa antes de perderlas.
+   */
+  const [orphanUnits, setOrphanUnits] = useState<Array<{ unitId: string; unitCode: string; condoId: string; condoName?: string }>>([]);
 
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -142,9 +156,13 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
   }, [onClose]);
 
   useEffect(() => {
+    let alive = true;
     (async () => {
       const res = await fetchWithAuth('/condos').catch(() => []);
-      if (!Array.isArray(res)) return;
+      if (!alive || !Array.isArray(res)) {
+        if (alive) setLoadingCtx(false);
+        return;
+      }
 
       const withUnits = await Promise.all(
         res.map(async (c: any) => {
@@ -156,12 +174,24 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
           };
         }),
       );
+      if (!alive) return;
       setCondos(withUnits);
 
       // Prefill de asignaciones al editar
       if (user) {
         const pre: Record<string, Assignment> = {};
+        const extra: Record<string, string[]> = {};
+        const condoNameById: Record<string, string> = {};
+        for (const c of withUnits) condoNameById[c.id] = c.name;
+
+        // El detalle agrupa por residencia: un usuario puede tener varios roles
+        // en la misma. El formulario edita el primero; los demás se conservan
+        // como "roles adicionales" para no perderlos al guardar.
         for (const acc of user.condos || []) {
+          if (!acc.role) continue; // acceso solo por empresa (tenant): sin rol en la residencia
+          const roles = (acc.roles?.length ? acc.roles : [acc.role]).filter(
+            (r): r is string => Boolean(r),
+          );
           const units: Record<string, UnitState> = {};
           for (const u of (user.units || []).filter((x) => x.condoId === acc.condoId)) {
             units[u.unitId] = {
@@ -170,13 +200,39 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
               isBillingRecipient: Boolean(u.isBillingRecipient),
             };
           }
-          pre[acc.condoId] = { role: acc.role || 'OWNER', units };
+          pre[acc.condoId] = { role: roles[0], units };
+          if (roles.length > 1) extra[acc.condoId] = roles.slice(1);
         }
+
+        // Unidades huérfanas: ocupadas en residencias SIN rol de residencia.
+        // `update()` reemplaza todas las asignaciones, así que se pierden.
+        const assignedCondoIds = new Set(Object.keys(pre));
+        const orphans: Array<{ unitId: string; unitCode: string; condoId: string }> = [];
+        for (const u of user.units || []) {
+          if (!assignedCondoIds.has(u.condoId)) {
+            orphans.push({
+              unitId: u.unitId,
+              unitCode: u.unitCode || u.unitId.slice(0, 8),
+              condoId: u.condoId,
+            });
+          }
+        }
+
         setAssignments(pre);
+        setExtraRoles(extra);
+        setOrphanUnits(
+          orphans.map((o) => ({
+            ...o,
+            condoName: condoNameById[o.condoId] || o.condoId.slice(0, 8),
+          })) as any,
+        );
       }
 
       setLoadingCtx(false);
     })();
+    return () => {
+      alive = false;
+    };
   }, [user]);
 
   const toggleCondo = (condoId: string) => {
@@ -189,12 +245,32 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
       }
       return next;
     });
+    // Al quitar la residencia también se descartan sus roles adicionales.
+    setExtraRoles((prev) => {
+      if (!prev[condoId]) return prev;
+      const next = { ...prev };
+      delete next[condoId];
+      return next;
+    });
   };
 
   const setRole = (condoId: string, role: string) => {
     setAssignments((prev) => {
       const current = prev[condoId] || { role: 'OWNER', units: {} };
       return { ...prev, [condoId]: { ...current, role } };
+    });
+    // Si el nuevo rol principal ya era un rol adicional, el rol anterior pasa
+    // a la lista de adicionales para no perderlo.
+    setExtraRoles((prev) => {
+      const extras = prev[condoId];
+      if (!extras?.length) return prev;
+      const oldPrimary = assignments[condoId]?.role;
+      const merged = new Set(extras.filter((r) => r !== role));
+      if (oldPrimary && oldPrimary !== role) merged.add(oldPrimary);
+      const next = { ...prev };
+      if (merged.size === 0) delete next[condoId];
+      else next[condoId] = Array.from(merged);
+      return next;
     });
   };
 
@@ -262,6 +338,14 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
       setError('La contraseña inicial debe tener al menos 6 caracteres.');
       return;
     }
+    if (!isCreate && orphanUnits.length > 0) {
+      const list = orphanUnits.map((o) => `${o.unitCode} (${o.condoName || o.condoId.slice(0, 8)})`).join(', ');
+      const ok = window.confirm(
+        `Al guardar se quitarán las unidades sin rol de residencia asignado: ${list}. ` +
+          'Si quieres conservarlas, cancela y asigna primero la residencia con su rol. ¿Continuar?',
+      );
+      if (!ok) return;
+    }
 
     const body: Record<string, unknown> = {
       firstName: form.firstName.trim(),
@@ -271,18 +355,29 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
       docNumber: form.docNumber.trim() || undefined,
       phone: form.phone.trim() || null,
       isSuperadmin: form.isSuperadmin,
-      assignments: Object.entries(assignments).map(([condoId, a]) => ({
-        condoId,
-        role: a.role,
-        units: Object.entries(a.units).map(
-          ([unitId, us]): UnitAssignmentApi => ({
-            unitId,
-            occupantRole: us.occupantRole,
-            isPrimaryContact: us.isPrimaryContact,
-            isBillingRecipient: us.isBillingRecipient,
-          }),
-        ),
-      })),
+      assignments: Object.entries(assignments).flatMap(([condoId, a]) => {
+        // El rol principal carga las unidades; los roles adicionales se
+        // re-emiten como assignments extra (sin unidades) para conservarlos:
+        // `update()` borra y reinserta todas las asignaciones del usuario.
+        const extras = extraRoles[condoId] || [];
+        return [
+          {
+            condoId,
+            role: a.role,
+            units: Object.entries(a.units).map(
+              ([unitId, us]): UnitAssignmentApi => ({
+                unitId,
+                occupantRole: us.occupantRole,
+                isPrimaryContact: us.isPrimaryContact,
+                isBillingRecipient: us.isBillingRecipient,
+              }),
+            ),
+          },
+          ...extras
+            .filter((r) => r !== a.role)
+            .map((role) => ({ condoId, role, units: [] })),
+        ];
+      }),
     };
     if (isCreate && mode === 'password') body.password = form.password;
     else if (!isCreate) body.isActive = form.isActive;
@@ -522,6 +617,19 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
               </span>
             </div>
 
+            {!isCreate && orphanUnits.length > 0 && (
+              <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
+                <span>
+                  <b>Atención:</b> este usuario ocupa unidades en residencias sin rol de residencia
+                  asignado. Al guardar, esas unidades se quitarán:{' '}
+                  {orphanUnits
+                    .map((o) => `${o.unitCode} (${o.condoName || o.condoId.slice(0, 8)})`)
+                    .join(', ')}. Cancela y asigna primero la residencia con su rol para conservarlas.
+                </span>
+              </div>
+            )}
+
             {loadingCtx ? (
               <div className="flex items-center gap-2 text-slate-400 py-4">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -551,7 +659,7 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
                           {!enabled && <span className="text-[11px] text-slate-400">sin acceso</span>}
                         </label>
                         {enabled && (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[11px] text-slate-500">Rol en la residencia:</span>
                             <select
                               value={sel.role}
@@ -564,6 +672,18 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
                                 </option>
                               ))}
                             </select>
+                            {(extraRoles[c.id] || []).length > 0 && (
+                              <span
+                                className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-medium"
+                                title="Roles adicionales que el usuario ya tiene en esta residencia y que se conservarán al guardar."
+                              >
+                                +{(extraRoles[c.id] || [])
+                                  .filter((r) => r !== sel.role)
+                                  .map((r) => ROLE_LABELS[r] || r)
+                                  .join(', ')}{' '}
+                                (se conservan)
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>

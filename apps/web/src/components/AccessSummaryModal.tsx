@@ -94,7 +94,12 @@ interface UnitDetail {
 interface CondoAccess {
   condoId: string;
   condoName: string;
-  role: string;
+  /** Rol principal en la residencia; `null` cuando el acceso es solo por empresa. */
+  role: string | null;
+  /** Todos los roles del usuario en la residencia (puede tener varios). */
+  roles?: string[];
+  active?: boolean;
+  /** Rol del usuario en la empresa administradora dueña de la residencia. */
   tenantRole?: string;
 }
 
@@ -247,21 +252,36 @@ export function AccessSummaryModal({
           {/* Por residencia */}
           {user.condos.length === 0 ? (
             <p className="text-sm text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl p-6 text-center">
-              Este usuario no tiene acceso a ninguna residencia.
+              {user.is_superadmin
+                ? 'Super Administrador: tiene acceso total a todas las residencias.'
+                : 'Este usuario no tiene acceso a ninguna residencia.'}
             </p>
           ) : (
             user.condos.map((condo) => {
-              const perms = effectivePermissions(
-                (condo.tenantRole as any) ?? null,
-                (condo.role as any) ?? null,
-                user.is_superadmin,
+              // Un usuario puede tener varios roles en la misma residencia: los
+              // permisos efectivos son la UNIÓN de cada rol (misma lógica que
+              // composeAccess del backend).
+              const condoRoles = (condo.roles?.length ? condo.roles : [condo.role]).filter(
+                (r): r is string => Boolean(r),
+              );
+              const perms = Array.from(
+                new Set(
+                  condoRoles.flatMap((r) =>
+                    effectivePermissions(
+                      (condo.tenantRole as any) ?? null,
+                      r as any,
+                      user.is_superadmin,
+                    ),
+                  ),
+                ),
               );
               const units = unitsByCondo[condo.condoId] || [];
               const disabled = disabledModulesByCondo?.[condo.condoId] || [];
+              const onlyByTenant = condoRoles.length === 0;
 
               return (
                 <div
-                  key={condo.condoId}
+                  key={`${condo.condoId}-${condoRoles.join('_') || 'tenant'}`}
                   className="bg-slate-50/50 rounded-xl border border-slate-200 p-5 space-y-4"
                 >
                   {/* Condo header */}
@@ -283,10 +303,21 @@ export function AccessSummaryModal({
                           Empresa: {condo.tenantRole}
                         </span>
                       )}
-                      <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
-                        Residencia:{' '}
-                        {ROLE_LABELS[condo.role] || condo.role}
-                      </span>
+                      {onlyByTenant ? (
+                        <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium">
+                          Acceso por empresa (sin rol en la residencia)
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
+                          Residencia:{' '}
+                          {condoRoles.map((r) => ROLE_LABELS[r] || r).join(' + ')}
+                        </span>
+                      )}
+                      {condo.active === false && (
+                        <span className="px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-medium">
+                          Acceso inactivo
+                        </span>
+                      )}
                     </div>
                   </div>
 

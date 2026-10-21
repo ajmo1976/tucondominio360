@@ -318,7 +318,15 @@ export default function Home() {
 
           {/* Portal del Propietario: unidades consolidadas en todas sus residencias */}
           {currentTab === 'my-units' && (
-            <MyUnitsView onGoToBills={() => setCurrentTab('my-bills')} />
+            <MyUnitsView
+              onGoToBills={
+                // El botón solo aparece si puede abrir "Mis recibos" (mismo
+                // criterio que el menú lateral: PAYMENTS_REPORT o superadmin).
+                userProfile.isSuperadmin || userPermissions.includes('PAYMENTS_REPORT')
+                  ? () => setCurrentTab('my-bills')
+                  : undefined
+              }
+            />
           )}
 
           {/* Módulo de Usuarios y Accesos (solo administración) */}
