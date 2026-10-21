@@ -15,6 +15,7 @@ import {
   CalendarDays,
   ClipboardList,
   Megaphone,
+  Building2,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -48,6 +49,7 @@ export function Sidebar({
     consultations: ['CONSULTATIONS_MANAGE', 'CONSULTATIONS_VOTE'],
     community: ['COMMUNITY_VIEW'],
     'my-bills': ['PAYMENTS_REPORT'],
+    'my-units': ['COMMUNITY_VIEW'],
   };
 
   // Mapeo de ítem de menú → código de módulo (para filtrar por módulo habilitado)
@@ -64,6 +66,7 @@ export function Sidebar({
     consultations: 'CONSULTATIONS',
     community: 'COMMUNITY',
     'my-bills': 'COMMUNITY',
+    'my-units': 'COMMUNITY',
     dashboard: 'DASHBOARD',
   };
 
@@ -119,6 +122,7 @@ export function Sidebar({
         { id: 'maintenance', label: 'Mantenimiento', icon: ClipboardList },
         { id: 'access', label: 'Visitas, Garita y Paquetes', icon: QrCode },
         { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
+        { id: 'my-units', label: 'Mis Unidades', icon: Building2 },
       ];
 
   // Filtrar según permisos Y módulos habilitados

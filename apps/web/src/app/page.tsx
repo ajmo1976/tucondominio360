@@ -12,6 +12,7 @@ import { PaymentsView } from '../components/PaymentsView';
 import { UnitsView } from '../components/UnitsView';
 import { AccessView } from '../components/AccessView';
 import { MyBillsView } from '../components/MyBillsView';
+import { MyUnitsView } from '../components/MyUnitsView';
 import { CommunityDashboard } from '../components/CommunityDashboard';
 import { UsersView } from '../components/UsersView';
 import { ConsultationsAdminView } from '../components/ConsultationsAdminView';
@@ -313,6 +314,11 @@ export default function Home() {
           {/* Portal del Propietario: recibos en todas sus residencias */}
           {currentTab === 'my-bills' && (
             <MyBillsView bcvRate={bcvRate} />
+          )}
+
+          {/* Portal del Propietario: unidades consolidadas en todas sus residencias */}
+          {currentTab === 'my-units' && (
+            <MyUnitsView onGoToBills={() => setCurrentTab('my-bills')} />
           )}
 
           {/* Módulo de Usuarios y Accesos (solo administración) */}
