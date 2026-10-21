@@ -22,7 +22,7 @@ import { AnnouncementsView } from '../components/AnnouncementsView';
 import { ProfileModal } from '../components/ProfileModal';
 import { CondoSelectorModal } from '../components/CondoSelectorModal';
 import { BankAccountsModal } from '../components/BankAccountsModal';
-import { fetchWithAuth, getSession, logout } from '../lib/api';
+import { fetchWithAuth, getSession, logout, getMyModules } from '../lib/api';
 
 /**
  * Estado inicial sin residencia cargada. Antes se arrancaba con una residencia
@@ -67,6 +67,7 @@ export default function Home() {
   });
 
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
+  const [modulesByCondo, setModulesByCondo] = useState<Record<string, string[]>>({});
 
   // Guard de sesión: sin login real la app no pinta el dashboard.
   useEffect(() => {
@@ -76,20 +77,22 @@ export default function Home() {
       return;
     }
     setAuthReady(true);
-    // Cargar permisos efectivos del usuario autenticado
+    // Cargar permisos efectivos y módulos del usuario autenticado
     (async () => {
       try {
         const meRes = await fetchWithAuth('/auth/me');
         if (meRes?.user) {
           const allPerms = (meRes.condos || []).reduce((acc: string[], c: any) => {
-          const p = c.permissions || [];
-          p.forEach((p: string) => { if (!acc.includes(p)) acc.push(p); });
-          return acc;
-        }, []);
-        setUserPermissions(allPerms);
+            const p = c.permissions || [];
+            p.forEach((p: string) => { if (!acc.includes(p)) acc.push(p); });
+            return acc;
+          }, []);
+          setUserPermissions(allPerms);
         }
+        const modules = await getMyModules();
+        setModulesByCondo(modules);
       } catch (err) {
-        console.error('Error loading permissions:', err);
+        console.error('Error loading permissions/modules:', err);
       }
     })();
   }, [router]);
@@ -206,6 +209,8 @@ export default function Home() {
         onTabChange={setCurrentTab}
         isSuperadmin={userProfile.isSuperadmin}
         permissions={userPermissions}
+        modulesByCondo={modulesByCondo}
+        selectedCondoId={selectedCondo?.id}
       />
 
       {/* Contenido Principal */}

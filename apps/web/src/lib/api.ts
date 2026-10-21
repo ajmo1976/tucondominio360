@@ -34,6 +34,7 @@ export interface Session {
   accessToken: string;
   user: SessionUser;
   condos: SessionCondo[];
+  modulesByCondo?: Record<string, string[]>;
 }
 
 /** Sesión persistente del usuario que inició sesión (o null si no hay). */
@@ -111,9 +112,15 @@ export async function loginWithGoogleToken(token: string): Promise<Session> {
     docNumber: data?.user?.doc_number ?? '',
     phone: data?.user?.phone ?? '',
     isSuperadmin: Boolean(data?.user?.is_superadmin),
+    emailVerified: data?.user?.emailVerified,
   };
 
-  return persistSession({ accessToken: token, user, condos: data?.condos ?? [] });
+  return persistSession({
+    accessToken: token,
+    user,
+    condos: data?.condos ?? [],
+    modulesByCondo: data?.modulesByCondo ?? {},
+  });
 }
 
 /** Error de API con el código opcional que envía el backend (`code`). */
@@ -193,6 +200,12 @@ export function logout(): void {
   window.localStorage.removeItem(SESSION_KEY);
   // Limpieza de claves del antiguo "modo propietario demo".
   window.localStorage.removeItem('tc360.devUserEmail');
+}
+
+/** Obtiene los módulos habilitados por condominio para el usuario autenticado. */
+export async function getMyModules(): Promise<Record<string, string[]>> {
+  const res = await fetchWithAuth('/auth/me');
+  return (res as any)?.modulesByCondo ?? {};
 }
 
 /**

@@ -22,9 +22,18 @@ interface SidebarProps {
   onTabChange: (tab: string) => void;
   isSuperadmin: boolean;
   permissions?: string[];
+  modulesByCondo?: Record<string, string[]>;
+  selectedCondoId?: string;
 }
 
-export function Sidebar({ currentTab, onTabChange, isSuperadmin, permissions = [] }: SidebarProps) {
+export function Sidebar({
+  currentTab,
+  onTabChange,
+  isSuperadmin,
+  permissions = [],
+  modulesByCondo = {},
+  selectedCondoId,
+}: SidebarProps) {
   // Permisos mínimos requeridos por cada ítem de menú (para usuarios no superadmin).
   const MENU_PERMISSIONS: Record<string, string[]> = {
     maintenance: ['MAINTENANCE_MANAGE', 'MAINTENANCE_REPORT'],
@@ -41,12 +50,47 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin, permissions = [
     'my-bills': ['PAYMENTS_REPORT'],
   };
 
-  /** Filtra los ítems del menú basándose en los permisos del usuario. */
-  function filterMenuItems(items: { id: string; label: string; icon: any }[], perms: string[]): { id: string; label: string; icon: any }[] {
+  // Mapeo de ítem de menú → código de módulo (para filtrar por módulo habilitado)
+  const MENU_TO_MODULE: Record<string, string> = {
+    maintenance: 'MAINTENANCE',
+    users: 'USERS',
+    expenses: 'EXPENSES',
+    bills: 'BILLING',
+    payments: 'PAYMENTS',
+    units: 'UNITS',
+    access: 'ACCESS',
+    amenities: 'AMENITIES',
+    announcements: 'ANNOUNCEMENTS',
+    consultations: 'CONSULTATIONS',
+    community: 'COMMUNITY',
+    'my-bills': 'COMMUNITY',
+    dashboard: 'DASHBOARD',
+  };
+
+  /** Verifica si el usuario tiene permiso para ver un ítem. */
+  function hasPermission(itemId: string, perms: string[]): boolean {
+    const required = MENU_PERMISSIONS[itemId];
+    return !required || required.some((p) => perms.includes(p));
+  }
+
+  /** Verifica si el módulo está habilitado para el condominio actual. */
+  function isModuleEnabled(itemId: string): boolean {
+    if (!selectedCondoId) return true;
+    const moduleCode = MENU_TO_MODULE[itemId];
+    if (!moduleCode) return true;
+    const condoModules = modulesByCondo[selectedCondoId];
+    if (!condoModules) return true;
+    return condoModules.includes(moduleCode);
+  }
+
+  /** Filtra los ítems del menú basándose en permisos Y módulos habilitados. */
+  function filterMenuItems(
+    items: { id: string; label: string; icon: any }[],
+    perms: string[],
+  ): { id: string; label: string; icon: any }[] {
     if (!perms || perms.length === 0) return items;
     return items.filter((item) => {
-      const required = MENU_PERMISSIONS[item.id];
-      return !required || required.some((p) => perms.includes(p));
+      return hasPermission(item.id, perms) && isModuleEnabled(item.id);
     });
   }
 
@@ -77,7 +121,7 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin, permissions = [
         { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
       ];
 
-  // Filtrar según permisos
+  // Filtrar según permisos Y módulos habilitados
   const menuItems = filterMenuItems(baseMenuItems, permissions);
 
   return (
@@ -133,13 +177,11 @@ export function Sidebar({ currentTab, onTabChange, isSuperadmin, permissions = [
         </nav>
       </div>
 
-      {/* Footer del Sidebar */}
-      <div className="p-4 border-t border-slate-800 text-xs text-slate-400 flex items-center justify-between">
-        <div>
-          <p className="text-slate-300 font-medium">Versión 1.0.0 (Local)</p>
-          <p className="text-[10px] text-slate-500">PostgreSQL + Redis Activos</p>
-        </div>
-        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+      {/* Footer con versión */}
+      <div className="p-4 border-t border-slate-800">
+        <p className="text-[11px] text-slate-500 text-center">
+          TuCondominio360 v1.0.0
+        </p>
       </div>
     </aside>
   );
