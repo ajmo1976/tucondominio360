@@ -19,6 +19,7 @@ import { AnnouncementsModule } from './modules/announcements/announcements.modul
 import { MailModule } from './modules/mail/mail.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { MeModule } from './modules/me/me.module';
+import { ModulesModule } from './modules/modules/modules.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { MeModule } from './modules/me/me.module';
     MailModule,
     TenantsModule,
     MeModule,
+    ModulesModule,
   ],
   controllers: [AppController],
 })

@@ -11,6 +11,7 @@ import { Optional } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AccessService } from '../access-core';
 import { DatabaseService } from '../../database/database.service';
+import { ModulesService } from '../modules/modules.service';
 import { TokensService } from './tokens.service';
 import { MailService } from '../mail/mail.service';
 import { LoginDto } from './dto/login.dto';
@@ -34,6 +35,8 @@ export class AuthService {
     private readonly mail: MailService,
     @Optional()
     private readonly access?: AccessService,
+    @Optional()
+    private readonly modules?: ModulesService,
   ) {}
 
   private readonly logger = new Logger(AuthService.name);
@@ -294,6 +297,10 @@ export class AuthService {
       [userId],
     );
 
+    const modulesByCondo = this.modules
+      ? await this.modules.getEffectiveForUser(userId)
+      : {};
+
     const { email_verified_at, ...userData } = userRes.rows[0];
 
     return {
@@ -303,6 +310,7 @@ export class AuthService {
         authProviders: identitiesRes.rows.map((r: any) => r.provider),
       },
       condos: condosEnriquecidos,
+      modulesByCondo,
     };
   }
 
