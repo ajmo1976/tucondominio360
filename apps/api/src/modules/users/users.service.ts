@@ -36,6 +36,46 @@ export class UsersService {
   ) {}
 
   /** Lista de usuarios con residencias y unidades asignadas (para el módulo de administración). */
+  /**
+   * Estado de cuenta y proveedores de autenticación para un lote de usuarios.
+   * `invitationPending` es true si existe un token INVITATION vigente (sin
+   * consumir ni expirar). Se resuelve en batch para no hacer N queries.
+   */
+  private async accountStateFor(ids: string[]) {
+    if (ids.length === 0) return {} as Record<string, any>;
+
+    const pendingRes = await this.db.query(
+      `SELECT DISTINCT user_id FROM auth_tokens
+        WHERE user_id = ANY($1) AND purpose = 'INVITATION'
+          AND consumed_at IS NULL AND expires_at > NOW()`,
+      [ids],
+    );
+    const pending = new Set<string>(pendingRes.rows.map((r: any) => r.user_id));
+
+    const verifiedRes = await this.db.query(
+      `SELECT id FROM users WHERE id = ANY($1) AND email_verified_at IS NOT NULL`,
+      [ids],
+    );
+    const verified = new Set<string>(verifiedRes.rows.map((r: any) => r.id));
+
+    const provRes = await this.db.query(
+      `SELECT user_id, provider FROM user_identities WHERE user_id = ANY($1)`,
+      [ids],
+    );
+    const providers: Record<string, string[]> = {};
+    for (const r of provRes.rows) (providers[r.user_id] ||= []).push(r.provider);
+
+    const out: Record<string, { invitationPending: boolean; emailVerified: boolean; authProviders: string[] }> = {};
+    for (const id of ids) {
+      out[id] = {
+        invitationPending: pending.has(id),
+        emailVerified: verified.has(id),
+        authProviders: providers[id] || [],
+      };
+    }
+    return out;
+  }
+
   async list(search = '') {
     const term = search.trim();
     const usersRes = await this.db.query(
@@ -77,8 +117,11 @@ export class UsersService {
     const byUnits: Record<string, Record<string, number>> = {};
     for (const o of occupantsRes.rows) (byUnits[o.user_id] ||= {})[o.condo_id] = o.units;
 
+    const state = await this.accountStateFor(ids);
+
     return users.map((u) => ({
       ...u,
+      ...state[u.id],
       condos: (byAccess[u.id] || []).map((a) => ({
         condoId: a.condo_id,
         condoName: a.condo_name,
@@ -119,8 +162,11 @@ export class UsersService {
       [id],
     );
 
+    const state = await this.accountStateFor([id]);
+
     return {
       ...user,
+      ...state[id],
       condos: accessesRes.rows.map((a) => ({
         condoId: a.condo_id,
         condoName: a.condo_name,
