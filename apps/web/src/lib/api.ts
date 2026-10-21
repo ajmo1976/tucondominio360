@@ -192,6 +192,27 @@ export async function acceptInvitation(token: string, newPassword: string): Prom
   );
 }
 
+/** Reenvía la invitación a un usuario pendiente. */
+export async function resendInvitation(userId: string): Promise<void> {
+  await postAuth(`/users/${userId}/invitation/resend`, {}, 'No se pudo reenviar la invitación');
+}
+
+/** Anula la invitación pendiente de un usuario. */
+export async function revokeInvitation(userId: string): Promise<void> {
+  await postAuth(`/users/${userId}/invitation/revoke`, {}, 'No se pudo revocar la invitación');
+}
+
+/** Envía al usuario un enlace para que defina su nueva contraseña. */
+export async function sendPasswordResetLink(userId: string): Promise<void> {
+  await postAuth(`/users/${userId}/password-reset-link`, {}, 'No se pudo enviar el enlace de restablecimiento');
+}
+
+/** Obtiene el acceso efectivo de un usuario (para AccessSummaryModal). */
+export async function getUserAccess(userId: string): Promise<any> {
+  const res = await fetchWithAuth(`/users/${userId}/access`).catch(() => null);
+  return res;
+}
+
 /** Cierra la sesión local (el token desaparece y deja de ser válido). */
 export function logout(): void {
   cachedToken = null;

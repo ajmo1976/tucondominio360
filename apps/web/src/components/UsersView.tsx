@@ -12,12 +12,29 @@ import {
   Trash2,
   Users as UsersIcon,
   UserCog,
+  Mail,
+  Shield,
+  AlertCircle,
+  MoreHorizontal,
+  CheckCircle,
+  AlertTriangle,
+  Send,
+  Key,
 } from 'lucide-react';
-import { fetchWithAuth, getSession } from '../lib/api';
+import { fetchWithAuth, getSession, resendInvitation, revokeInvitation, sendPasswordResetLink } from '../lib/api';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { UserFormModal, ROLE_LABELS } from './UserFormModal';
 import { ResetPasswordModal } from './ResetPasswordModal';
 import { UserDashboardModal } from './UserDashboardModal';
+import { AccessSummaryModal } from './AccessSummaryModal';
+
+interface CondoUnit {
+  id: string;
+  code: string;
+  occupantRole: string;
+  isPrimaryContact: boolean;
+  isBillingRecipient: boolean;
+}
 
 interface CondoAccess {
   condoId: string;
@@ -25,6 +42,9 @@ interface CondoAccess {
   role: string;
   accessActive: boolean;
   units: number;
+  tenantRole?: string;
+  permissions: string[];
+  unitsDetail?: CondoUnit[];
 }
 
 interface UserRow {
@@ -39,6 +59,22 @@ interface UserRow {
   is_superadmin: boolean;
   created_at: string;
   condos: CondoAccess[];
+  emailVerified?: boolean;
+  authProviders?: string[];
+  invitationPending?: boolean;
+  avatar_url?: string;
+}
+
+type AccountStatus = 'ACTIVE' | 'PENDING_INVITATION' | 'EMAIL_UNVERIFIED' | 'INACTIVE';
+
+type InvitationStatus = 'NONE' | 'PENDING' | 'EXPIRED' | 'ACCEPTED';
+
+interface UserFilters {
+  search: string;
+  condoId: string;
+  role: string;
+  status: string;
+  provider: string;
 }
 
 function initialsOf(name: string): string {
@@ -50,54 +86,119 @@ function initialsOf(name: string): string {
     .join('');
 }
 
+function getAccountStatus(user: UserRow): AccountStatus {
+  if (!user.is_active) return 'INACTIVE';
+  if (user.invitationPending) return 'PENDING_INVITATION';
+  if (!user.emailVerified) return 'EMAIL_UNVERIFIED';
+  return 'ACTIVE';
+}
+
+function getProviderLabel(user: UserRow): string {
+  const providers = user.authProviders || [];
+  if (providers.includes('GOOGLE') && providers.includes('LOCAL')) return 'Google + Contraseña';
+  if (providers.includes('GOOGLE')) return 'Google';
+  if (providers.includes('LOCAL')) return 'Contraseña';
+  return 'Sin proveedor';
+}
+
+const STATUS_LABELS: Record<AccountStatus, { label: string; color: string; icon: React.ReactNode }> = {
+  ACTIVE: { label: 'Activo', color: 'bg-emerald-50 text-emerald-700', icon: <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> },
+  PENDING_INVITATION: { label: 'Invitación pendiente', color: 'bg-amber-50 text-amber-700', icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-500" /> },
+  EMAIL_UNVERIFIED: { label: 'Correo sin verificar', color: 'bg-amber-50 text-amber-700', icon: <AlertCircle className="w-3.5 h-3.5 text-amber-500" /> },
+  INACTIVE: { label: 'Inactivo', color: 'bg-rose-50 text-rose-700', icon: <Power className="w-3.5 h-3.5 text-rose-500" /> },
+};
+
+const PROVIDER_ICONS: Record<string, React.ReactNode> = {
+  Google: <Send className="w-3 h-3" />,
+  'Google + Contraseña': <Send className="w-3 h-3" />,
+  Contraseña: <Key className="w-3 h-3" />,
+  'Sin proveedor': <AlertCircle className="w-3 h-3" />,
+};
+
 export function UsersView() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState<UserFilters>({
+    search: '',
+    condoId: '',
+    role: '',
+    status: '',
+    provider: '',
+  });
+  const [condos, setCondos] = useState<Array<{ id: string; name: string }>>([]);
 
   const [showForm, setShowForm] = useState(false);
   const [formUser, setFormUser] = useState<UserRow | null>(null);
   const [resetUser, setResetUser] = useState<UserRow | null>(null);
   const [dashboardUser, setDashboardUser] = useState<UserRow | null>(null);
+  const [accessUser, setAccessUser] = useState<UserRow | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const [notice, setNotice] = useState('');
+  const [actionMenu, setActionMenu] = useState<{ user: UserRow; x: number; y: number } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
   const selfId = getSession()?.user.id;
+  const hasUsersManage = useMemo(() => {
+    const perms = getSession()?.condos?.flatMap((c: any) => c.permissions) || [];
+    return perms.includes('USERS_MANAGE') || getSession()?.user.isSuperadmin;
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetchWithAuth('/users').catch(() => []);
-    if (Array.isArray(res)) setUsers(res);
-    setLoading(false);
+    try {
+      const [usersRes, condosRes] = await Promise.all([
+        fetchWithAuth('/users').catch(() => []),
+        fetchWithAuth('/condos').catch(() => []),
+      ]);
+      if (Array.isArray(usersRes)) setUsers(usersRes);
+      if (Array.isArray(condosRes)) setCondos(condosRes);
+    } catch {
+      setUsers([]);
+      setCondos([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) =>
-      u.first_name.toLowerCase().includes(q) ||
-      u.last_name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      `${u.doc_number}`.toLowerCase().includes(q),
-    );
-  }, [users, search]);
-
-  const flash = (msg: string) => {
-    setNotice(msg);
-    window.setTimeout(() => setNotice(''), 3500);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
   };
 
+  const filtered = useMemo(() => {
+    return users.filter((u) => {
+      const q = filters.search.trim().toLowerCase();
+      if (q && !(
+        u.first_name.toLowerCase().includes(q) ||
+        u.last_name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        `${u.doc_number}`.toLowerCase().includes(q)
+      )) return false;
+
+      if (filters.condoId && !u.condos.some(c => c.condoId === filters.condoId)) return false;
+      if (filters.role && !u.condos.some(c => c.role === filters.role)) return false;
+      if (filters.status) {
+        const status = getAccountStatus(u);
+        if (status !== filters.status) return false;
+      }
+      if (filters.provider) {
+        const providerLabel = getProviderLabel(u);
+        if (providerLabel !== filters.provider) return false;
+      }
+      return true;
+    });
+  }, [users, filters]);
+
+  const flash = (msg: string, type: 'success' | 'error' = 'success') => showToast(msg, type);
+
   const openForm = async (u: UserRow | null) => {
-    // La lista de /users no incluye las unidades ocupadas. Al editar se carga
-    // el detalle (GET /users/:id) para que el formulario preserve las unidades
-    // asignadas; si el detalle falla, se edita con lo que se tiene.
     if (u) {
       const detail = await fetchWithAuth(`/users/${u.id}`).catch(() => null);
       setFormUser(detail || u);
@@ -121,7 +222,36 @@ export function UsersView() {
       );
       load();
     } catch (err) {
-      flash(err instanceof Error ? err.message : 'No se pudo cambiar el estado.');
+      flash(err instanceof Error ? err.message : 'No se pudo cambiar el estado.', 'error');
+    }
+  };
+
+  const handleResendInvitation = async (u: UserRow) => {
+    try {
+      await resendInvitation(u.id);
+      flash('Invitación reenviada correctamente.');
+      load();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'No se pudo reenviar la invitación.', 'error');
+    }
+  };
+
+  const handleRevokeInvitation = async (u: UserRow) => {
+    try {
+      await revokeInvitation(u.id);
+      flash('Invitación revocada.');
+      load();
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'No se pudo revocar la invitación.', 'error');
+    }
+  };
+
+  const handleSendPasswordReset = async (u: UserRow) => {
+    try {
+      await sendPasswordResetLink(u.id);
+      flash('Enlace de restablecimiento enviado.');
+    } catch (err) {
+      flash(err instanceof Error ? err.message : 'No se pudo enviar el enlace.', 'error');
     }
   };
 
@@ -133,13 +263,26 @@ export function UsersView() {
       await fetchWithAuth(`/users/${deleteTarget.id}`, { method: 'DELETE' });
       setDeleteTarget(null);
       setDeleting(false);
-      flash('Usuario eliminado definitivamente del sistema.');
+      showToast('Usuario eliminado definitivamente del sistema.');
       load();
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'No se pudo eliminar el usuario');
       setDeleting(false);
     }
   };
+
+  const closeActionMenu = () => setActionMenu(null);
+
+  // Click outside to close action menu
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (actionMenu && !(e.target as HTMLElement).closest('[data-action-menu]')) {
+        closeActionMenu();
+      }
+    };
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [actionMenu]);
 
   return (
     <div className="space-y-5">
@@ -154,31 +297,92 @@ export function UsersView() {
             Cuentas del SaaS, sus residencias, roles y unidades asignadas.
           </p>
         </div>
-        <button
-          onClick={() => openForm(null)}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-sm transition"
-        >
-          <Plus className="w-4 h-4" />
-          Nuevo Usuario
-        </button>
+        {hasUsersManage && (
+          <button
+            onClick={() => openForm(null)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-sm transition"
+          >
+            <Plus className="w-4 h-4" />
+            Nuevo Usuario
+          </button>
+        )}
       </div>
 
-      {notice && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-sm font-medium">
-          {notice}
+      {toast && (
+        <div className={`p-3 rounded-xl text-sm font-medium flex items-center gap-2 ${
+          toast.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+            : 'bg-rose-50 border border-rose-200 text-rose-800'
+        }`}>
+          {toast.type === 'success' ? (
+            <CheckCircle className="w-4 h-4 text-emerald-500" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-rose-500" />
+          )}
+          {toast.message}
         </div>
       )}
 
-      {/* Barra de búsqueda */}
-      <div className="relative max-w-sm">
-        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por nombre, correo o cédula…"
-          className="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500 transition"
-        />
+      {/* Barra de filtros */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 space-y-4">
+        <div className="relative max-w-sm">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={filters.search}
+            onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
+            placeholder="Buscar por nombre, correo o cédula…"
+            className="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500 transition"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <select
+            value={filters.condoId}
+            onChange={(e) => setFilters(f => ({ ...f, condoId: e.target.value }))}
+            className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
+          >
+            <option value="">Todas las residencias</option>
+            {condos.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+
+          <select
+            value={filters.role}
+            onChange={(e) => setFilters(f => ({ ...f, role: e.target.value }))}
+            className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
+          >
+            <option value="">Todos los roles</option>
+            {Object.entries(ROLE_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+
+          <select
+            value={filters.status}
+            onChange={(e) => setFilters(f => ({ ...f, status: e.target.value }))}
+            className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
+          >
+            <option value="">Todos los estados</option>
+            <option value="ACTIVE">Activo</option>
+            <option value="PENDING_INVITATION">Invitación pendiente</option>
+            <option value="EMAIL_UNVERIFIED">Correo sin verificar</option>
+            <option value="INACTIVE">Inactivo</option>
+          </select>
+
+          <select
+            value={filters.provider}
+            onChange={(e) => setFilters(f => ({ ...f, provider: e.target.value }))}
+            className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-500"
+          >
+            <option value="">Todos los proveedores</option>
+            <option value="Google">Google</option>
+            <option value="Contraseña">Contraseña</option>
+            <option value="Google + Contraseña">Google + Contraseña</option>
+            <option value="Sin proveedor">Sin proveedor</option>
+          </select>
+        </div>
       </div>
 
       {/* Tabla de usuarios */}
@@ -191,9 +395,9 @@ export function UsersView() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <UserCog className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <p className="font-semibold text-slate-700">No hay usuarios{search ? ' que coincidan con la búsqueda' : ''}</p>
+            <p className="font-semibold text-slate-700">No hay usuarios{filters.search ? ' que coincidan con la búsqueda' : ''}</p>
             <p className="text-sm text-slate-400 mt-1">
-              {search ? 'Prueba con otro término.' : 'Crea el primer usuario con "Nuevo Usuario".'}
+              {filters.search ? 'Prueba con otro término.' : hasUsersManage ? 'Crea el primer usuario con "Nuevo Usuario".' : 'No tienes permisos para crear usuarios.'}
             </p>
           </div>
         ) : (
@@ -203,15 +407,20 @@ export function UsersView() {
                 <tr className="text-[11px] uppercase tracking-widest text-slate-400 border-b border-slate-200 bg-slate-50/60">
                   <th className="px-5 py-3 font-bold">Usuario</th>
                   <th className="px-5 py-3 font-bold">Cédula</th>
-                  <th className="px-5 py-3 font-bold">Roles y residencias</th>
+                  <th className="px-5 py-3 font-bold">Residencias y roles</th>
                   <th className="px-5 py-3 font-bold">Estado</th>
-                  <th className="px-5 py-3 font-bold">Creado</th>
+                  <th className="px-5 py-3 font-bold">Proveedor</th>
+                  <th className="px-5 py-3 font-bold">Último ingreso</th>
                   <th className="px-5 py-3 font-bold text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((u) => {
                   const isSelf = u.id === selfId;
+                  const status = getAccountStatus(u);
+                  const statusInfo = STATUS_LABELS[status];
+                  const providerLabel = getProviderLabel(u);
+
                   return (
                     <tr key={u.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition">
                       <td className="px-5 py-3">
@@ -257,64 +466,138 @@ export function UsersView() {
                         </div>
                       </td>
                       <td className="px-5 py-3">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                            u.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'
-                          }`}
-                        >
-                          <span className={`w-1.5 h-1.5 rounded-full ${u.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                          {u.is_active ? 'Activo' : 'Inactivo'}
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold ${statusInfo.color}`}>
+                          {statusInfo.icon}
+                          {statusInfo.label}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 text-slate-700 text-[11px] font-medium">
+                          {PROVIDER_ICONS[providerLabel] || PROVIDER_ICONS['Sin proveedor']}
+                          {providerLabel}
                         </span>
                       </td>
                       <td className="px-5 py-3 text-xs text-slate-500">
-                        {new Date(u.created_at).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {u.created_at ? new Date(u.created_at).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                       </td>
                       <td className="px-5 py-3">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="relative" data-action-menu>
                           <button
-                            onClick={() => setDashboardUser(u)}
-                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-                            title="Ver dashboard del usuario"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => openForm(u)}
-                            className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
-                            title="Editar usuario"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setResetUser(u)}
-                            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
-                            title="Restablecer contraseña"
-                          >
-                            <KeyRound className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => toggleActive(u)}
-                            disabled={isSelf}
-                            className={`p-2 rounded-lg transition ${
-                              u.is_active
-                                ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                                : 'text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50'
-                            } disabled:opacity-30 disabled:cursor-not-allowed`}
-                            title={u.is_active ? 'Desactivar usuario' : 'Activar usuario'}
-                          >
-                            <Power className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setDeleteTarget(u);
-                              setDeleteError(null);
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setActionMenu({ user: u, x: rect.right, y: rect.bottom });
                             }}
-                            disabled={isSelf}
-                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed"
-                            title="Eliminar usuario"
+                            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                            title="Más acciones"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <MoreHorizontal className="w-4 h-4" />
                           </button>
+
+                          {actionMenu?.user.id === u.id && (
+                            <div
+                              className="absolute right-0 top-full mt-1 z-20 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-1"
+                              role="menu"
+                            >
+                              <button
+                                onClick={() => {
+                                  setDashboardUser(u);
+                                  closeActionMenu();
+                                }}
+                                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                role="menuitem"
+                              >
+                                <Eye className="w-4 h-4" />
+                                Ver dashboard
+                              </button>
+
+                              {hasUsersManage && (
+                                <button
+                                  onClick={() => {
+                                    openForm(u);
+                                    closeActionMenu();
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                  role="menuitem"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                  Editar
+                                </button>
+                              )}
+
+                              {hasUsersManage && u.invitationPending && (
+                                <button
+                                  onClick={() => { handleResendInvitation(u); closeActionMenu(); }}
+                                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                  role="menuitem"
+                                >
+                                  <Mail className="w-4 h-4" />
+                                  Reenviar invitación
+                                </button>
+                              )}
+
+                              {hasUsersManage && u.invitationPending && (
+                                <button
+                                  onClick={() => { handleRevokeInvitation(u); closeActionMenu(); }}
+                                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                  role="menuitem"
+                                >
+                                  <AlertTriangle className="w-4 h-4" />
+                                  Revocar invitación
+                                </button>
+                              )}
+
+                              {hasUsersManage && !u.invitationPending && u.is_active && (
+                                <button
+                                  onClick={() => { handleSendPasswordReset(u); closeActionMenu(); }}
+                                  className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                  role="menuitem"
+                                >
+                                  <Key className="w-4 h-4" />
+                                  Enviar enlace de restablecimiento
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => { setAccessUser(u); closeActionMenu(); }}
+                                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                role="menuitem"
+                              >
+                                <Shield className="w-4 h-4" />
+                                Ver permisos
+                              </button>
+
+                              <hr className="my-1 border-slate-200" />
+
+                              <button
+                                onClick={() => toggleActive(u)}
+                                disabled={isSelf}
+                                className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${
+                                  u.is_active
+                                    ? 'text-rose-600 hover:bg-rose-50'
+                                    : 'text-emerald-600 hover:bg-emerald-50'
+                                } disabled:opacity-30 disabled:cursor-not-allowed`}
+                                role="menuitem"
+                              >
+                                <Power className="w-4 h-4" />
+                                {u.is_active ? 'Desactivar' : 'Activar'}
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setDeleteTarget(u);
+                                  setDeleteError(null);
+                                  closeActionMenu();
+                                }}
+                                disabled={isSelf}
+                                className="w-full px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50 flex items-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
+                                role="menuitem"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                Eliminar
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -333,7 +616,7 @@ export function UsersView() {
           onClose={() => setShowForm(false)}
           onSaved={() => {
             setShowForm(false);
-            flash(formUser ? 'Cambios guardados.' : 'Usuario creado exitosamente.');
+            showToast('Usuario guardado correctamente.');
             load();
           }}
         />
@@ -346,7 +629,7 @@ export function UsersView() {
           onClose={() => setResetUser(null)}
           onSaved={() => {
             setResetUser(null);
-            flash('Contraseña restablecida.');
+            showToast('Contraseña restablecida.');
           }}
         />
       )}
@@ -356,6 +639,13 @@ export function UsersView() {
           userId={dashboardUser.id}
           userName={`${dashboardUser.first_name} ${dashboardUser.last_name}`}
           onClose={() => setDashboardUser(null)}
+        />
+      )}
+
+      {accessUser && (
+        <AccessSummaryModal
+          user={accessUser}
+          onClose={() => setAccessUser(null)}
         />
       )}
 
@@ -377,6 +667,22 @@ export function UsersView() {
             'Esta acción no puede deshacerse.',
           ]}
         />
+      )}
+
+      {/* Toast global */}
+      {toast && (
+        <div className={`fixed bottom-4 right-4 z-50 p-4 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 ${
+          toast.type === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+            : 'bg-rose-50 border border-rose-200 text-rose-800'
+        }`}>
+          {toast.type === 'success' ? (
+            <CheckCircle className="w-4 h-4 text-emerald-500" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-rose-500" />
+          )}
+          {toast.message}
+        </div>
       )}
     </div>
   );
