@@ -21,10 +21,12 @@ import { VoteDto } from './dto/vote.dto';
 import { ConsultationManageGuard } from './guards/consultation-manage.guard';
 import { ConsultationMemberGuard } from './guards/consultation-member.guard';
 import { ConsultationsService } from './consultations.service';
+import { ModuleEnabledGuard, RequireModule } from '../modules';
 
 @ApiTags('Consultas y Asambleas')
 @Controller('consultations')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), ModuleEnabledGuard)
+@RequireModule('CONSULTATIONS')
 export class ConsultationsController {
   constructor(private readonly service: ConsultationsService) {}
 

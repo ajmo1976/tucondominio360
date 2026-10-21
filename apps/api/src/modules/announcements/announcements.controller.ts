@@ -21,6 +21,7 @@ import {
   CondoPermissionGuard,
   RequireCondoPermission,
 } from '../access-core';
+import { ModuleEnabledGuard, RequireModule } from '../modules';
 
 // Mapa checks → permisos por residencia (Fase B):
 //   GET  /, /kpis, /my-acks, /:id            → ANNOUNCEMENTS_VIEW
@@ -29,7 +30,8 @@ import {
 //   POST /:id/acknowledge                    → ANNOUNCEMENTS_ACK
 
 @Controller('announcements')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), ModuleEnabledGuard)
+@RequireModule('ANNOUNCEMENTS')
 export class AnnouncementsController {
   constructor(private readonly service: AnnouncementsService) {}
 

@@ -23,6 +23,7 @@ import {
   CondoPermissionGuard,
   RequireCondoPermission,
 } from '../access-core';
+import { ModuleEnabledGuard, RequireModule } from '../modules';
 
 // Mapa checks → permisos por residencia (Fase B):
 //   GET    /tickets, /tickets/kpis, /tickets/:id, /tickets/:id/comments → MAINTENANCE_MANAGE | MAINTENANCE_REPORT
@@ -32,7 +33,8 @@ import {
 //   DELETE /tickets/:id                                               → MAINTENANCE_MANAGE
 
 @Controller('maintenance')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), ModuleEnabledGuard)
+@RequireModule('MAINTENANCE')
 export class MaintenanceController {
   constructor(private readonly service: MaintenanceService) {}
 

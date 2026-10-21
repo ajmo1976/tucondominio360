@@ -29,9 +29,11 @@ import {
   CondoPermissionGuard,
   RequireCondoPermission,
 } from '../access-core';
+import { ModuleEnabledGuard, RequireModule } from '../modules';
 
 @Controller('access')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), ModuleEnabledGuard)
+@RequireModule('ACCESS')
 export class AccessController {
   constructor(private readonly service: AccessService) {}
 

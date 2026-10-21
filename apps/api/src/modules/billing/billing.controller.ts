@@ -2,10 +2,12 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Re
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { BillingService } from './billing.service';
+import { ModuleEnabledGuard, RequireModule } from '../modules';
 
 @ApiTags('Facturación y Recibos')
 @Controller('billing')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), ModuleEnabledGuard)
+@RequireModule('BILLING')
 @ApiBearerAuth()
 export class BillingController {
   constructor(private readonly billingService: BillingService) {}

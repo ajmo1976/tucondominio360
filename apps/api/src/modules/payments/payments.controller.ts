@@ -3,10 +3,12 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { AuthGuard } from '@nestjs/passport';
 import { PaymentsService } from './payments.service';
 import { ReportPaymentDto } from './dto/report-payment.dto';
+import { ModuleEnabledGuard, RequireModule } from '../modules';
 
 @ApiTags('Pagos y Conciliación')
 @Controller('payments')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), ModuleEnabledGuard)
+@RequireModule('PAYMENTS')
 @ApiBearerAuth()
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}

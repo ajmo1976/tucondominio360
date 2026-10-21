@@ -4,10 +4,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { CommunityService } from './community.service';
 import { CondoMemberGuard } from './guards/condo-member.guard';
+import { ModuleEnabledGuard, RequireModule } from '../modules';
 
 @ApiTags('Dashboard Comunitario (Transparencia)')
 @Controller('community')
-@UseGuards(AuthGuard('jwt'), CondoMemberGuard)
+@UseGuards(AuthGuard('jwt'), CondoMemberGuard, ModuleEnabledGuard)
+@RequireModule('COMMUNITY')
 @ApiBearerAuth()
 export class CommunityController {
   constructor(private readonly communityService: CommunityService) {}
