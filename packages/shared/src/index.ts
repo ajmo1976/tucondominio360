@@ -253,3 +253,6 @@ export * from './auth';
 
 // Permisos efectivos por tenant y residencia
 export * from './permissions';
+
+// Catálogo y resolución de módulos on/off
+export * from './modules';
