@@ -157,21 +157,55 @@ export class ModulesService {
 
   /** Módulos efectivos por usuario (para GET /api/me/modules). */
   async getEffectiveForUser(userId: string): Promise<Record<string, ModuleCode[]>> {
-    // Trae todas las residencias del usuario + sus tenant_ids
-    const res = await this.db.query(
-      `SELECT DISTINCT c.id, c.name, c.tenant_id
-         FROM condos c
-        WHERE c.is_active = TRUE
-          AND (
-            c.id IN (SELECT condo_id FROM condo_user_access WHERE user_id = $1 AND is_active = TRUE)
-            OR c.tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = $1 AND is_active = TRUE)
-          )
-        ORDER BY c.name`,
+    // Primero verificamos si es superadmin
+    const userRes = await this.db.query(`SELECT is_superadmin FROM users WHERE id = $1`, [userId]);
+    const isSuperadmin = userRes.rows[0]?.is_superadmin === true;
+
+    // Traer tenant_id del usuario (si es staff de tenant)
+    const tuRes = await this.db.query(
+      `SELECT tenant_id, role FROM tenant_users WHERE user_id = $1 AND is_active = TRUE`,
       [userId],
     );
+    const tenantId = tuRes.rows[0]?.tenant_id;
+    const tenantRole = tuRes.rows[0]?.role;
+
+    // Trae todas las residencias relevantes
+    let condosRes;
+    if (isSuperadmin) {
+      // Superadmin ve todos los condos activos
+      condosRes = await this.db.query(
+        `SELECT id, name, tenant_id FROM condos WHERE is_active = TRUE ORDER BY name`,
+      );
+    } else if (tenantId && (tenantRole === 'OWNER' || tenantRole === 'ADMIN')) {
+      // Tenant admin ve todos los condos de su tenant
+      condosRes = await this.db.query(
+        `SELECT id, name, tenant_id FROM condos WHERE tenant_id = $1 AND is_active = TRUE ORDER BY name`,
+        [tenantId],
+      );
+    } else {
+      // Usuario normal: solo condos donde tiene acceso directo o es ocupante
+      condosRes = await this.db.query(
+        `SELECT DISTINCT c.id, c.name, c.tenant_id
+           FROM condos c
+          WHERE c.is_active = TRUE
+            AND (
+              c.id IN (SELECT condo_id FROM condo_user_access WHERE user_id = $1 AND is_active = TRUE)
+              OR c.tenant_id IN (SELECT tenant_id FROM tenant_users WHERE user_id = $1 AND is_active = TRUE)
+              OR c.id IN (
+                SELECT pu.condo_id
+                  FROM property_units pu
+                  JOIN unit_occupants uo ON uo.property_unit_id = pu.id
+                 WHERE uo.user_id = $1
+                   AND (uo.valid_to IS NULL OR uo.valid_to >= CURRENT_DATE)
+              )
+            )
+          ORDER BY c.name`,
+        [userId],
+      );
+    }
 
     const result: Record<string, ModuleCode[]> = {};
-    for (const c of res.rows) {
+    for (const c of condosRes.rows) {
       // Overrides de tenant
       const tenantRows = await this.db.query(
         `SELECT module_code, enabled FROM tenant_modules WHERE tenant_id = $1`,
