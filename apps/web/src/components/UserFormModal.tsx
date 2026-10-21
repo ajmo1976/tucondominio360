@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, KeyRound, Loader2, Mail, Plus, Save, UserCircle2, X } from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 
@@ -129,6 +129,17 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
 
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Cerrar con Escape y poner el foco inicial en el diálogo.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    dialogRef.current?.focus();
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   useEffect(() => {
     (async () => {
@@ -291,7 +302,14 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isCreate ? 'Nuevo usuario' : 'Editar usuario'}
+        tabIndex={-1}
+        className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col focus:outline-none"
+      >
         <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2">
             <UserCircle2 className="w-5 h-5 text-emerald-400" />
@@ -449,8 +467,17 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
                 </span>
               </span>
               <span
+                role="switch"
+                aria-checked={form.isSuperadmin}
+                tabIndex={0}
                 onClick={() => setForm({ ...form, isSuperadmin: !form.isSuperadmin })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${form.isSuperadmin ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setForm({ ...form, isSuperadmin: !form.isSuperadmin });
+                  }
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition cursor-pointer ${form.isSuperadmin ? 'bg-emerald-500' : 'bg-slate-300'}`}
               >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${form.isSuperadmin ? 'translate-x-6' : 'translate-x-1'}`}
@@ -466,8 +493,17 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
                   </span>
                 </span>
                 <span
+                  role="switch"
+                  aria-checked={form.isActive}
+                  tabIndex={0}
                   onClick={() => setForm({ ...form, isActive: !form.isActive })}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${form.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setForm({ ...form, isActive: !form.isActive });
+                    }
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition cursor-pointer ${form.isActive ? 'bg-emerald-500' : 'bg-slate-300'}`}
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${form.isActive ? 'translate-x-6' : 'translate-x-1'}`}
