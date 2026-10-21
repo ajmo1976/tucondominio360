@@ -644,7 +644,8 @@ export function UsersView() {
 
       {accessUser && (
         <AccessSummaryModal
-          user={accessUser}
+          userId={accessUser.id}
+          fallbackName={`${accessUser.first_name} ${accessUser.last_name}`}
           onClose={() => setAccessUser(null)}
         />
       )}
