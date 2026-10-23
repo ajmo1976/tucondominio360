@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2 } from 'lucide-react';
 import { Sidebar } from '../components/Sidebar';
@@ -41,10 +41,31 @@ const NO_CONDO = {
   secondary_currency: 'VES',
 };
 
+/** Etiquetas del rol dentro de una residencia (condo_user_access). */
+const CONDO_ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Administrador',
+  OWNER: 'Propietario',
+  BOARD_PRESIDENT: 'Presidente de Junta',
+  BOARD_TREASURER: 'Tesorero de Junta',
+  BOARD_MEMBER: 'Miembro de Junta',
+  TENANT: 'Arrendatario',
+};
+
+/** Etiquetas del rol dentro de la empresa administradora/junta (tenant_users). */
+const TENANT_ROLE_LABELS: Record<string, string> = {
+  OWNER: 'Dueño de Empresa',
+  ADMIN: 'Administración de Empresa',
+  STAFF: 'Staff de Empresa',
+  VIEWER: 'Observador de Empresa',
+};
+
 export default function Home() {
   const router = useRouter();
   const [authReady, setAuthReady] = useState(false);
   const [currentTab, setCurrentTab] = useState('dashboard');
+  // La pestaña inicial (gestión vs. portal) se decide solo en la primera carga
+  // de perfil: cambiar de residencia no debe volver a saltar de pestaña.
+  const initialTabSet = useRef(false);
   const [bcvRate, setBcvRate] = useState<string>('');
   const [condos, setCondos] = useState<any[]>([]);
   const [selectedCondo, setSelectedCondo] = useState<any>(NO_CONDO);
@@ -65,6 +86,8 @@ export default function Home() {
     docNumber: '',
     role: '',
     isSuperadmin: false,
+    /** Staff de empresa administradora/junta o con rol de residencia (menú de gestión). */
+    isStaff: false,
   });
 
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
@@ -160,18 +183,39 @@ export default function Home() {
       const meRes = await fetchWithAuth('/auth/me').catch(() => null);
       if (meRes?.user) {
         const isSuper = Boolean(meRes.user.is_superadmin);
+        // Rol efectivo en la residencia activa: primero el rol de residencia
+        // (condo_user_access); si no tiene, el de la empresa administradora
+        // (tenant_users, p. ej. OWNER/ADMIN de la administradora); si solo
+        // ocupa unidades, es propietario del portal.
+        // `isStaff` del backend marca al personal de gestión (rol de empresa o
+        // rol de residencia de administración/junta); OWNER/TENANT de
+        // residencia y simples ocupantes son propietarios del portal.
+        const access = (meRes.condos || []).find((c: any) => c.condoId === condoId);
+        const isStaff = Boolean(access?.isStaff);
+        const role = isSuper
+          ? 'Super Administrador'
+          : access?.condoRole
+            ? CONDO_ROLE_LABELS[access.condoRole] || access.condoRole
+            : access?.tenantRole
+              ? TENANT_ROLE_LABELS[access.tenantRole] || `Empresa (${access.tenantRole})`
+              : 'Propietario · Portal de Recibos';
         setUserProfile({
           firstName: meRes.user.first_name || '',
           lastName: meRes.user.last_name || '',
           email: meRes.user.email || '',
           phone: meRes.user.phone || '',
           docNumber: meRes.user.doc_number || '',
-          role: isSuper ? 'Super Administrador' : 'Propietario · Portal de Recibos',
+          role,
           isSuperadmin: isSuper,
+          isStaff,
         });
-        // Un propietario entra directo a su Dashboard General comunitario
-        // (solo lectura); los módulos de administración no aplican a su sesión.
-        if (!isSuper) setCurrentTab('community');
+        // Pestaña inicial según el tipo de usuario: el personal de
+        // administración (empresa o residencia) entra al dashboard de gestión;
+        // el propietario al portal de transparencia. Solo la primera vez.
+        if (!initialTabSet.current) {
+          initialTabSet.current = true;
+          if (!isSuper) setCurrentTab(isStaff ? 'dashboard' : 'community');
+        }
       }
     } catch (err) {
       console.error('Error loading condo data:', err);
@@ -209,6 +253,7 @@ export default function Home() {
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         isSuperadmin={userProfile.isSuperadmin}
+        isStaff={userProfile.isStaff}
         permissions={userPermissions}
         modulesByCondo={modulesByCondo}
         selectedCondoId={selectedCondo?.id}
@@ -224,6 +269,7 @@ export default function Home() {
           userName={`${userProfile.firstName} ${userProfile.lastName}`.trim() || userProfile.email}
           userEmail={userProfile.email}
           isSuperadmin={userProfile.isSuperadmin}
+          role={userProfile.role}
           onLogout={handleLogout}
           onOpenProfile={() => setShowProfileModal(true)}
           onOpenCondoSelector={() => setShowCondoSelectorModal(true)}
@@ -348,7 +394,7 @@ export default function Home() {
         <ProfileModal
           currentUser={userProfile}
           onClose={() => setShowProfileModal(false)}
-          onProfileUpdated={(updated) => setUserProfile(updated)}
+          onProfileUpdated={(updated) => setUserProfile((prev) => ({ ...prev, ...updated }))}
         />
       )}
 

@@ -47,9 +47,10 @@ export class CondosService {
   }
 
   /**
-   * Lista de residencias de un usuario regular: solo aquellas donde tiene un
-   * acceso activo (condo_user_access) u ocupa alguna unidad. Un propietario no
-   * ve los condominios de otros.
+   * Lista de residencias de un usuario regular: aquellas donde tiene un acceso
+   * activo (condo_user_access), ocupa alguna unidad o pertenece a su empresa
+   * administradora/junta (tenant_users: el portafolio de la empresa). Un
+   * propietario no ve los condominios de otros.
    */
   async findForUser(userId: string, tenantId?: string) {
     const tenantFilter = tenantId ? 'AND c.tenant_id = $2' : '';
@@ -66,7 +67,10 @@ export class CondosService {
               OR EXISTS (
                 SELECT 1 FROM unit_occupants uo
                 JOIN property_units pu ON pu.id = uo.property_unit_id
-                WHERE pu.condo_id = c.id AND uo.user_id = $1))
+                WHERE pu.condo_id = c.id AND uo.user_id = $1)
+              OR EXISTS (
+                SELECT 1 FROM tenant_users tu
+                WHERE tu.tenant_id = c.tenant_id AND tu.user_id = $1 AND tu.is_active = TRUE))
        ORDER BY c.name ASC`,
       params,
     );

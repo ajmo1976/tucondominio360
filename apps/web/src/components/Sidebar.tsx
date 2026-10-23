@@ -22,6 +22,8 @@ interface SidebarProps {
   currentTab: string;
   onTabChange: (tab: string) => void;
   isSuperadmin: boolean;
+  /** Staff de empresa administradora/junta o con rol de residencia: ve el menú de gestión. */
+  isStaff?: boolean;
   permissions?: string[];
   modulesByCondo?: Record<string, string[]>;
   selectedCondoId?: string;
@@ -31,6 +33,7 @@ export function Sidebar({
   currentTab,
   onTabChange,
   isSuperadmin,
+  isStaff = false,
   permissions = [],
   modulesByCondo = {},
   selectedCondoId,
@@ -97,33 +100,47 @@ export function Sidebar({
     });
   }
 
-  // En modo propietario (portal de transparencia y recibos) el menú se reduce
-  // a lo que el dueño necesita: su Dashboard General (solo lectura) y sus
-  // propios recibos; la administración conserva todos los módulos.
+  // Menú de administración (junta, personal de empresa o superadmin): todos
+  // los módulos de gestión; el filtro de permisos + módulos habilitados de
+  // abajo se encarga de ocultar lo que el rol no pueda usar.
+  const ADMIN_MENU_ITEMS = [
+    { id: 'dashboard', label: 'Dashboard General', icon: LayoutDashboard },
+    { id: 'maintenance', label: 'Mantenimiento', icon: ClipboardList },
+    { id: 'announcements', label: 'Cartelera Digital', icon: Megaphone },
+    { id: 'expenses', label: 'Gastos y Facturas', icon: FileSpreadsheet },
+    { id: 'bills', label: 'Gestión de Recibos', icon: Receipt },
+    { id: 'payments', label: 'Conciliación de Pagos', icon: ArrowLeftRight },
+    { id: 'units', label: 'Propietarios y Alícuotas', icon: Home },
+    { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
+    { id: 'amenities', label: 'Reserva de Áreas Comunes', icon: CalendarDays },
+    { id: 'users', label: 'Usuarios y Accesos', icon: Users },
+    { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
+  ];
+
+  // Menú del portal del propietario (solo lo propio: transparencia y recibos).
+  const PORTAL_MENU_ITEMS = [
+    { id: 'community', label: 'Dashboard General', icon: LayoutDashboard },
+    { id: 'announcements', label: 'Cartelera Digital', icon: Megaphone },
+    { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
+    { id: 'amenities', label: 'Reserva de Áreas Comunes', icon: CalendarDays },
+    { id: 'maintenance', label: 'Mantenimiento', icon: ClipboardList },
+    { id: 'access', label: 'Visitas, Garita y Paquetes', icon: QrCode },
+    { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
+    { id: 'my-units', label: 'Mis Unidades', icon: Building2 },
+  ];
+
+  // En modo propietario el menú se reduce a lo que el dueño necesita; el
+  // personal de gestión ve los módulos de administración (más su portal
+  // personal, por si también es propietario de una unidad).
   const baseMenuItems = isSuperadmin
-    ? [
-        { id: 'dashboard', label: 'Dashboard General', icon: LayoutDashboard },
-        { id: 'maintenance', label: 'Mantenimiento', icon: ClipboardList },
-        { id: 'announcements', label: 'Cartelera Digital', icon: Megaphone },
-        { id: 'expenses', label: 'Gastos y Facturas', icon: FileSpreadsheet },
-        { id: 'bills', label: 'Gestión de Recibos', icon: Receipt },
-        { id: 'payments', label: 'Conciliación de Pagos', icon: ArrowLeftRight },
-        { id: 'units', label: 'Propietarios y Alícuotas', icon: Home },
-        { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
-        { id: 'amenities', label: 'Reserva de Áreas Comunes', icon: CalendarDays },
-        { id: 'users', label: 'Usuarios y Accesos', icon: Users },
-        { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
-      ]
-    : [
-        { id: 'community', label: 'Dashboard General', icon: LayoutDashboard },
-        { id: 'announcements', label: 'Cartelera Digital', icon: Megaphone },
-        { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
-        { id: 'amenities', label: 'Reserva de Áreas Comunes', icon: CalendarDays },
-        { id: 'maintenance', label: 'Mantenimiento', icon: ClipboardList },
-        { id: 'access', label: 'Visitas, Garita y Paquetes', icon: QrCode },
-        { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
-        { id: 'my-units', label: 'Mis Unidades', icon: Building2 },
-      ];
+    ? ADMIN_MENU_ITEMS
+    : isStaff
+      ? [
+          ...ADMIN_MENU_ITEMS,
+          { id: 'my-bills', label: 'Mis Recibos', icon: Receipt },
+          { id: 'my-units', label: 'Mis Unidades', icon: Building2 },
+        ]
+      : PORTAL_MENU_ITEMS;
 
   // Filtrar según permisos Y módulos habilitados
   const menuItems = filterMenuItems(baseMenuItems, permissions);

@@ -11,6 +11,8 @@ interface HeaderProps {
   userName: string;
   userEmail: string;
   isSuperadmin: boolean;
+  /** Rol efectivo del usuario en la residencia activa (empresa o residencia). */
+  role?: string;
   onLogout: () => void;
   onOpenProfile: () => void;
   onOpenCondoSelector: () => void;
@@ -34,6 +36,7 @@ export function Header({
   userName,
   userEmail,
   isSuperadmin,
+  role,
   onLogout,
   onOpenProfile,
   onOpenCondoSelector,
@@ -110,7 +113,7 @@ export function Header({
               {userName || userEmail || '—'}
             </p>
             <p className="text-emerald-600 font-medium flex items-center gap-1">
-              <span>{isSuperadmin ? 'Super Administrador' : 'Propietario · Portal de Recibos'}</span>
+              <span>{role || (isSuperadmin ? 'Super Administrador' : 'Propietario · Portal de Recibos')}</span>
               <UserCog className="w-3 h-3 text-slate-400 group-hover:text-emerald-600" />
             </p>
           </div>
