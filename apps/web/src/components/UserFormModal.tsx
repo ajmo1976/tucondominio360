@@ -1,7 +1,20 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, KeyRound, Loader2, Mail, Plus, Save, UserCircle2, X } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  Building2,
+  Home,
+  KeyRound,
+  Loader2,
+  Mail,
+  Plus,
+  Save,
+  UserCircle2,
+  Users,
+  X,
+} from 'lucide-react';
 import { fetchWithAuth } from '../lib/api';
 
 /**
@@ -39,6 +52,28 @@ export const OCCUPANT_ROLE_LABELS: Record<string, string> = {
 
 const DOC_TYPES = ['V', 'E', 'J', 'G', 'P'];
 
+/** Tipos de usuario que define el superadmin (selector del formulario). */
+const ACCOUNT_TYPE_OPTIONS = [
+  {
+    value: 'PROPIETARIO',
+    label: 'Propietario',
+    icon: Home,
+    hint: 'Dueño o ocupante de unidades; entra al portal del propietario.',
+  },
+  {
+    value: 'JUNTA',
+    label: 'Junta',
+    icon: Users,
+    hint: 'Miembro de junta de condominio: una sola residencia.',
+  },
+  {
+    value: 'ADMINISTRADORA',
+    label: 'Administradora',
+    icon: Building2,
+    hint: 'Empresa administradora: cartera de residencias según el plan.',
+  },
+] as const;
+
 interface CondoUnit {
   id: string;
   unit_code: string;
@@ -48,6 +83,8 @@ interface CondoUnit {
 interface CondoOption {
   id: string;
   name: string;
+  /** Tenant al que pertenece la residencia (para la cartera de la empresa). */
+  tenant_id?: string;
   units: CondoUnit[];
 }
 
@@ -79,6 +116,18 @@ interface UserRow {
   phone: string;
   is_active: boolean;
   is_superadmin: boolean;
+  /** Tipo principal que define el superadmin. */
+  accountType?: 'PROPIETARIO' | 'JUNTA' | 'ADMINISTRADORA';
+  /** Empresa (tenant COMPANY) del usuario, si tiene. */
+  company?: {
+    id: string;
+    name: string;
+    rif: string | null;
+    email: string | null;
+    phone: string | null;
+    maxCondos: number | null;
+    condoIds: string[];
+  } | null;
   /** Una entrada por residencia; `role` es null si el acceso es solo por empresa. */
   condos: Array<{ condoId: string; condoName?: string; role: string | null; roles?: string[] }>;
   units?: Array<{
@@ -141,6 +190,19 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
    */
   const [orphanUnits, setOrphanUnits] = useState<Array<{ unitId: string; unitCode: string; condoId: string; condoName?: string }>>([]);
 
+  // Tipo de usuario que define el superadmin (y datos de su empresa).
+  const [accountType, setAccountType] = useState<'PROPIETARIO' | 'JUNTA' | 'ADMINISTRADORA'>(
+    user?.accountType || 'PROPIETARIO',
+  );
+  const [companyForm, setCompanyForm] = useState({
+    name: user?.company?.name || '',
+    rif: user?.company?.rif || '',
+    email: user?.company?.email || '',
+    phone: user?.company?.phone || '',
+  });
+  /** Residencias marcadas para SUMAR a la cartera de la empresa al guardar. */
+  const [portfolioSel, setPortfolioSel] = useState<string[]>([]);
+
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -170,6 +232,7 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
           return {
             id: c.id,
             name: c.name,
+            tenant_id: c.tenant_id,
             units: Array.isArray(units) ? units : [],
           };
         }),
@@ -236,6 +299,11 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
   }, [user]);
 
   const toggleCondo = (condoId: string) => {
+    // Regla de Junta de Condominio: UNA sola residencia.
+    if (accountType === 'JUNTA' && !assignments[condoId] && Object.keys(assignments).length >= 1) {
+      setError('Una Junta de Condominio solo puede tener una residencia asignada.');
+      return;
+    }
     setAssignments((prev) => {
       const next = { ...prev };
       if (next[condoId]) {
@@ -322,6 +390,34 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
 
   const enabledCondos = useMemo(() => Object.keys(assignments).length, [assignments]);
 
+  /** Residencias ya incorporadas a la cartera de la empresa del usuario. */
+  const inCartera = useMemo(
+    () => condos.filter((c) => user?.company?.id && c.tenant_id === user.company.id),
+    [condos, user?.company?.id],
+  );
+  /** Residencias disponibles para SUMAR a la cartera (las de otras empresas o nuevas). */
+  const portfolioCandidates = useMemo(
+    () => condos.filter((c) => !user?.company?.id || c.tenant_id !== user.company!.id),
+    [condos, user?.company?.id],
+  );
+  /** Cuántas más caben según el plan (maxCondos; null = sin límite). */
+  const portfolioRoom = useMemo(() => {
+    const max = user?.company?.maxCondos;
+    if (max == null) return Number.POSITIVE_INFINITY;
+    return Math.max(0, max - inCartera.length);
+  }, [user?.company?.maxCondos, inCartera.length]);
+
+  /** El usuario todavía no tiene empresa: los datos son requeridos al guardar. */
+  const needsCompanyData = accountType === 'ADMINISTRADORA' && !user?.company;
+  /** Límite del plan de la empresa (null = sin límite). */
+  const planMax = user?.company?.maxCondos ?? null;
+
+  const togglePortfolio = (condoId: string) => {
+    setPortfolioSel((prev) =>
+      prev.includes(condoId) ? prev.filter((x) => x !== condoId) : [...prev, condoId],
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -347,6 +443,30 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
       if (!ok) return;
     }
 
+    // Reglas del tipo de usuario.
+    if (accountType === 'JUNTA' && Object.keys(assignments).length > 1) {
+      setError('Una Junta de Condominio solo puede tener una residencia asignada.');
+      return;
+    }
+    // La empresa se crea solo si el usuario todavía no tiene una.
+    const creatingCompany = accountType === 'ADMINISTRADORA' && !user?.company;
+    if (creatingCompany && !companyForm.name.trim()) {
+      setError('Indica el nombre comercial de la empresa administradora.');
+      return;
+    }
+    if (creatingCompany && !companyForm.rif.trim()) {
+      setError('El RIF de la empresa es requerido para crearla.');
+      return;
+    }
+    if (
+      accountType === 'ADMINISTRADORA' &&
+      companyForm.email.trim() &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(companyForm.email.trim())
+    ) {
+      setError('El correo de la empresa no es válido.');
+      return;
+    }
+
     const body: Record<string, unknown> = {
       firstName: form.firstName.trim(),
       lastName: form.lastName.trim(),
@@ -355,6 +475,7 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
       docNumber: form.docNumber.trim() || undefined,
       phone: form.phone.trim() || null,
       isSuperadmin: form.isSuperadmin,
+      accountType,
       assignments: Object.entries(assignments).flatMap(([condoId, a]) => {
         // El rol principal carga las unidades; los roles adicionales se
         // re-emiten como assignments extra (sin unidades) para conservarlos:
@@ -379,6 +500,17 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
         ];
       }),
     };
+    // Administradora: datos de su empresa (se crean solo si aún no existe) y
+    // las residencias que se suman a su cartera (validadas contra el plan).
+    if (accountType === 'ADMINISTRADORA' && companyForm.name.trim()) {
+      body.company = {
+        name: companyForm.name.trim(),
+        rif: companyForm.rif.trim() || undefined,
+        email: companyForm.email.trim() || undefined,
+        phone: companyForm.phone.trim() || undefined,
+      };
+      if (portfolioSel.length > 0) body.portfolioCondoIds = portfolioSel;
+    }
     if (isCreate && mode === 'password') body.password = form.password;
     else if (!isCreate) body.isActive = form.isActive;
 
@@ -422,6 +554,45 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
               {error}
             </div>
           )}
+
+          {/* Tipo de usuario: lo define el superadmin */}
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[11px] uppercase tracking-widest text-slate-400 font-bold">Tipo de usuario</h4>
+              <span className="text-[11px] text-slate-400">Lo define el Super Admin</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {ACCOUNT_TYPE_OPTIONS.map((opt) => {
+                const Icon = opt.icon;
+                const active = accountType === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setAccountType(opt.value);
+                      setError('');
+                    }}
+                    className={`p-3 rounded-xl border text-left transition ${
+                      active
+                        ? 'border-emerald-500 bg-emerald-50/60 ring-1 ring-emerald-400'
+                        : 'border-slate-200 bg-slate-50/60 hover:border-slate-300'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 mb-1 ${active ? 'text-emerald-600' : 'text-slate-400'}`} />
+                    <span className="block font-bold text-slate-800">{opt.label}</span>
+                    <span className="block text-[11px] text-slate-500 mt-0.5 leading-snug">{opt.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {accountType === 'JUNTA' && (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                Una Junta de Condominio solo puede tener UNA residencia asignada.
+              </p>
+            )}
+          </section>
 
           {/* Modo de creación: invitar vs crear con contraseña */}
           {isCreate && (
@@ -608,12 +779,147 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
             )}
           </section>
 
+          {/* Empresa administradora: se crea automáticamente al guardar */}
+          {accountType === 'ADMINISTRADORA' && (
+            <section className="bg-blue-50/50 border border-blue-200 rounded-xl p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-[11px] uppercase tracking-widest text-blue-500 font-bold flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5" />
+                  Empresa administradora
+                </h4>
+                <span className="text-[11px] text-slate-500">
+                  {user?.company
+                    ? planMax != null
+                      ? `Plan: ${planMax} residencias máx.`
+                      : 'Plan: sin límite'
+                    : 'Se creará al guardar'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Nombre comercial {needsCompanyData && <span className="text-rose-500">*</span>}
+                  </label>
+                  <input
+                    type="text"
+                    required={needsCompanyData}
+                    value={companyForm.name}
+                    onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })}
+                    placeholder="Administradora Inmobiliaria Capital C.A."
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    RIF {needsCompanyData && <span className="text-rose-500">*</span>}
+                  </label>
+                  <input
+                    type="text"
+                    required={needsCompanyData}
+                    value={companyForm.rif}
+                    onChange={(e) => setCompanyForm({ ...companyForm, rif: e.target.value })}
+                    placeholder="J-31456789-0"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Correo de la empresa</label>
+                  <input
+                    type="email"
+                    value={companyForm.email}
+                    onChange={(e) => setCompanyForm({ ...companyForm, email: e.target.value })}
+                    placeholder="contacto@empresa.com"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block font-semibold text-slate-700 mb-1">Teléfono de la empresa</label>
+                  <input
+                    type="text"
+                    value={companyForm.phone}
+                    onChange={(e) => setCompanyForm({ ...companyForm, phone: e.target.value })}
+                    placeholder="+582129991122"
+                    className="w-full bg-white border border-slate-300 rounded-lg p-2.5 text-slate-900 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-blue-200 pt-3">
+                <h5 className="text-[11px] uppercase tracking-widest text-slate-500 font-bold mb-2">
+                  Residencias de la empresa (cartera)
+                </h5>
+
+                {inCartera.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {inCartera.map((c) => (
+                      <span
+                        key={c.id}
+                        className="px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-blue-700 text-[10px] font-semibold"
+                        title="Residencia que ya pertenece a la cartera de la empresa"
+                      >
+                        {c.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {portfolioCandidates.length === 0 ? (
+                  <p className="text-[11px] text-slate-400">
+                    No hay otras residencias disponibles para incorporar.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {portfolioCandidates.map((c) => {
+                      const selected = portfolioSel.includes(c.id);
+                      const blocked = !selected && portfolioSel.length >= portfolioRoom;
+                      return (
+                        <label
+                          key={c.id}
+                          className={`flex items-center gap-2 text-xs py-1 ${
+                            blocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={blocked}
+                            onChange={() => togglePortfolio(c.id)}
+                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-slate-700">{c.name}</span>
+                          {selected && (
+                            <span className="text-[10px] font-semibold text-blue-600">
+                              se sumará a la cartera
+                            </span>
+                          )}
+                          {blocked && (
+                            <span className="text-[10px] font-semibold text-rose-500">
+                              plan alcanzado
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <p className="text-[11px] text-slate-400 mt-2">
+                  {planMax != null
+                    ? `Plan: ${inCartera.length + portfolioSel.length} de ${planMax} residencias.`
+                    : 'Sin límite de plan definido; puedes fijarlo desde la pantalla de Empresas.'}
+                </p>
+              </div>
+            </section>
+          )}
+
           {/* Residencias y unidades */}
           <section>
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-[11px] uppercase tracking-widest text-slate-400 font-bold">Residencias y unidades</h4>
               <span className="text-[11px] text-slate-400">
                 {enabledCondos === 0 ? 'Sin accesos asignados' : `${enabledCondos} residencia(s)`}
+                {accountType === 'JUNTA' && ' · Junta: máx. 1'}
               </span>
             </div>
 
@@ -648,12 +954,24 @@ export function UserFormModal({ user, onClose, onSaved }: UserFormModalProps) {
                   return (
                     <div key={c.id} className={`border rounded-xl transition ${enabled ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200 bg-slate-50/60'}`}>
                       <div className="p-3 flex items-center justify-between">
-                        <label className="flex items-center space-x-2 cursor-pointer">
+                        <label
+                          className={`flex items-center space-x-2 ${
+                            accountType === 'JUNTA' && !enabled && enabledCondos >= 1
+                              ? 'opacity-50 cursor-not-allowed'
+                              : 'cursor-pointer'
+                          }`}
+                        >
                           <input
                             type="checkbox"
                             checked={enabled}
+                            disabled={accountType === 'JUNTA' && !enabled && enabledCondos >= 1}
                             onChange={() => toggleCondo(c.id)}
-                            className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            title={
+                              accountType === 'JUNTA' && !enabled && enabledCondos >= 1
+                                ? 'Una Junta de Condominio solo puede tener una residencia'
+                                : undefined
+                            }
+                            className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 disabled:cursor-not-allowed"
                           />
                           <span className="font-semibold text-slate-800">{c.name}</span>
                           {!enabled && <span className="text-[11px] text-slate-400">sin acceso</span>}

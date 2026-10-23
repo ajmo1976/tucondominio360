@@ -25,6 +25,12 @@ import {
 export class TenantsController {
   constructor(private readonly service: TenantsService) {}
 
+  @Get()
+  @ApiOperation({ summary: 'Empresas (superadmin: todas; personal: solo las suyas como OWNER/ADMIN)' })
+  listTenants(@Request() req: any) {
+    return this.service.listTenants(req.user);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Datos de la administradora y las residencias de su cartera' })
   getTenant(@Request() req: any, @Param('id') id: string) {

@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { TENANT_ROLES } from '../tenants.logic';
 
 /** Asigna (o cambia) el rol de un usuario dentro de la empresa administradora. */
@@ -29,4 +29,14 @@ export class UpdateTenantDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  /**
+   * Plan comercial: máximo de residencias en la cartera de la empresa.
+   * `null` = sin límite. Solo el superadmin puede cambiarlo; no puede quedar
+   * por debajo de las residencias actuales.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1, { message: 'El plan debe ser de al menos 1 residencia' })
+  maxCondos?: number | null;
 }

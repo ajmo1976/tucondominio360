@@ -30,6 +30,39 @@ export const CONDO_ROLES = [
 /** Tipos de documento de identidad venezolano soportados. */
 export const DOC_TYPES = ['V', 'E', 'J', 'G', 'P'] as const;
 
+/**
+ * Tipo de usuario que define el superadmin:
+ *  - PROPIETARIO:    dueño/ocupante de unidades (portal del propietario).
+ *  - JUNTA:          miembro de junta de condominio (UNA sola residencia).
+ *  - ADMINISTRADORA: personal de empresa administradora (cartera de N
+ *                    residencias, con el límite del plan en tenants.max_condos).
+ * Es combinable con los accesos existentes: cambiar el tipo no borra accesos.
+ */
+export const ACCOUNT_TYPES = ['PROPIETARIO', 'JUNTA', 'ADMINISTRADORA'] as const;
+
+/** Datos de la empresa administradora que se crea automáticamente al definir un usuario como ADMINISTRADORA. */
+export class CompanySetupDto {
+  @ApiProperty({ example: 'Administradora Inmobiliaria Capital C.A.' })
+  @IsString()
+  @IsNotEmpty({ message: 'El nombre comercial de la empresa es requerido' })
+  name: string;
+
+  @ApiPropertyOptional({ example: 'J-31456789-0', description: 'RIF de la empresa (obligatorio si la empresa es nueva)' })
+  @IsOptional()
+  @IsString()
+  rif?: string;
+
+  @ApiPropertyOptional({ example: 'contacto@admincapital.com.ve' })
+  @IsOptional()
+  @IsEmail({}, { message: 'El correo de la empresa no es válido' })
+  email?: string;
+
+  @ApiPropertyOptional({ example: '+582129991122' })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+}
+
 export class UnitAssignmentDto {
   @ApiProperty({ description: 'ID de la unidad inmobiliaria (en BD mapea a property_unit_id)' })
   @IsUUID()
@@ -113,6 +146,34 @@ export class CreateUserDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ACCOUNT_TYPES,
+    default: 'PROPIETARIO',
+    description: 'Tipo principal que define el superadmin (PROPIETARIO | JUNTA | ADMINISTRADORA)',
+  })
+  @IsOptional()
+  @IsIn(ACCOUNT_TYPES)
+  accountType?: (typeof ACCOUNT_TYPES)[number];
+
+  @ApiPropertyOptional({
+    type: CompanySetupDto,
+    description: 'Datos de la empresa a crear automáticamente si accountType = ADMINISTRADORA y el usuario no tiene empresa',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CompanySetupDto)
+  company?: CompanySetupDto;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'ADMINISTRADORA: residencias a incorporar a la cartera de su empresa (se valida contra el plan max_condos)',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true, message: 'portfolioCondoIds: cada residencia debe ser un UUID válido' })
+  portfolioCondoIds?: string[];
 
   @ApiPropertyOptional({ type: [CondoAssignmentDto], description: 'Residencias y unidades que se le asignan' })
   @IsOptional()

@@ -7,6 +7,7 @@ import {
 import type { TenantRole } from '@tucondominio360/shared';
 import { DatabaseService } from '../../database/database.service';
 import { assertTenantRole } from './tenants.logic';
+import type { UpdateTenantDto } from './dto/tenant-staff.dto';
 
 /**
  * Empresa administradora (tenant) y su personal.
@@ -33,11 +34,42 @@ export class TenantsService {
     }
   }
 
+  /**
+   * Lista de empresas. El superadmin ve todas (con su cartera y plan); el
+   * resto solo ve las empresas donde es OWNER/ADMIN.
+   */
+  async listTenants(user: any) {
+    const params: any[] = [];
+    let scope = '';
+    if (!user?.is_superadmin) {
+      scope = `WHERE EXISTS (
+        SELECT 1 FROM tenant_users tu
+         WHERE tu.tenant_id = t.id AND tu.user_id = $1
+           AND tu.is_active = TRUE AND tu.role IN ('OWNER', 'ADMIN'))`;
+      params.push(user?.id);
+    }
+    const res = await this.db.query(
+      `SELECT t.id, t.name, t.slug, t.tenant_type, t.rif, t.email, t.phone, t.address,
+              t.is_active, t.created_at AS "createdAt",
+              t.max_condos AS "maxCondos",
+              (SELECT COUNT(*)::int FROM condos c
+                WHERE c.tenant_id = t.id AND c.is_active = TRUE) AS "condosCount",
+              (SELECT COUNT(*)::int FROM tenant_users tu2
+                WHERE tu2.tenant_id = t.id AND tu2.is_active = TRUE) AS "staffCount"
+         FROM tenants t
+         ${scope}
+        ORDER BY t.name ASC`,
+      params,
+    );
+    return res.rows;
+  }
+
   /** Datos de la administradora y las residencias de su cartera. */
   async getTenant(user: any, tenantId: string) {
     await this.assertTenantAdmin(user, tenantId);
     const tenantRes = await this.db.query(
-      `SELECT id, name, slug, tenant_type, rif, email, phone, address, logo_url, is_active, settings
+      `SELECT id, name, slug, tenant_type, rif, email, phone, address, logo_url, is_active, settings,
+              max_condos AS "maxCondos"
          FROM tenants WHERE id = $1`,
       [tenantId],
     );
@@ -62,26 +94,50 @@ export class TenantsService {
       logoUrl: t.logo_url,
       isActive: t.is_active,
       settings: t.settings,
+      maxCondos: t.maxCondos,
       condos: condosRes.rows,
     };
   }
 
-  /** Actualiza datos de contacto de la administradora. */
-  async updateTenant(
-    user: any,
-    tenantId: string,
-    dto: { name?: string; email?: string; phone?: string },
-  ) {
+  /** Actualiza datos de contacto de la administradora y, para el superadmin, su plan (max_condos). */
+  async updateTenant(user: any, tenantId: string, dto: UpdateTenantDto) {
     await this.assertTenantAdmin(user, tenantId);
+
+    if (dto.maxCondos !== undefined) {
+      if (!user?.is_superadmin) {
+        throw new ForbiddenException('Solo el superadmin puede cambiar el plan de residencias de la empresa');
+      }
+      if (dto.maxCondos !== null) {
+        const cur = await this.db.query(
+          `SELECT COUNT(*)::int AS n FROM condos WHERE tenant_id = $1 AND is_active = TRUE`,
+          [tenantId],
+        );
+        if (dto.maxCondos < cur.rows[0].n) {
+          throw new BadRequestException(
+            `El plan no puede ser menor que las ${cur.rows[0].n} residencias actuales de la empresa`,
+          );
+        }
+      }
+    }
+
     const res = await this.db.query(
       `UPDATE tenants SET
          name = COALESCE($1, name),
          email = COALESCE($2, email),
          phone = COALESCE($3, phone),
+         max_condos = CASE WHEN $5 THEN max_condos ELSE $6 END,
          updated_at = NOW()
        WHERE id = $4
-       RETURNING id, name, slug, tenant_type, rif, email, phone, address, logo_url, is_active, settings`,
-      [dto.name ?? null, dto.email ?? null, dto.phone ?? null, tenantId],
+       RETURNING id, name, slug, tenant_type, rif, email, phone, address, logo_url, is_active, settings,
+                 max_condos AS "maxCondos"`,
+      [
+        dto.name ?? null,
+        dto.email ?? null,
+        dto.phone ?? null,
+        tenantId,
+        dto.maxCondos === undefined,
+        dto.maxCondos ?? null,
+      ],
     );
     if (res.rows.length === 0) throw new NotFoundException('Empresa administradora no encontrada');
     return res.rows[0];

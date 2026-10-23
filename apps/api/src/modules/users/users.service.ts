@@ -80,7 +80,8 @@ export class UsersService {
     const term = search.trim();
     const usersRes = await this.db.query(
       `SELECT u.id, u.email, u.first_name, u.last_name, u.doc_type, u.doc_number, u.phone,
-              u.is_active, u.is_superadmin, u.avatar_url, u.created_at
+              u.is_active, u.is_superadmin, u.avatar_url, u.created_at,
+              u.account_type AS "accountType"
        FROM users u
        WHERE $1 = '' OR u.first_name ILIKE $2 OR u.last_name ILIKE $2
           OR u.email ILIKE $2 OR u.doc_number ILIKE $2
@@ -200,7 +201,8 @@ export class UsersService {
   async findOne(id: string) {
     const userRes = await this.db.query(
       `SELECT id, email, first_name, last_name, doc_type, doc_number, phone,
-              is_active, is_superadmin, created_at
+              is_active, is_superadmin, created_at,
+              account_type AS "accountType"
        FROM users WHERE id = $1`,
       [id],
     );
@@ -220,8 +222,11 @@ export class UsersService {
     // residencias aunque no exista fila explícita en condo_user_access
     // (misma pata que resuelve /me/access vía composeAccess).
     const tenantsRes = await this.db.query(
-      `SELECT tenant_id, role FROM tenant_users
-        WHERE user_id = $1 AND is_active = TRUE`,
+      `SELECT tu.tenant_id, tu.role, t.tenant_type, t.name AS tenant_name,
+              t.rif, t.email, t.phone, t.max_condos AS "maxCondos"
+         FROM tenant_users tu
+         JOIN tenants t ON t.id = tu.tenant_id
+        WHERE tu.user_id = $1 AND tu.is_active = TRUE`,
       [id],
     );
     const tenantRoleOf = new Map<string, string>(
@@ -289,9 +294,31 @@ export class UsersService {
     }
     condoEntries.sort((a, b) => (a.condoName || '').localeCompare(b.condoName || ''));
 
+    // Empresa (tenant COMPANY) del usuario, si tiene: el form del superadmin
+    // la usa para precargar los datos y saber qué residencias ya están en la
+    // cartera (el plan es tenants.max_condos).
+    const companies = tenantsRes.rows
+      .filter((t: any) => t.tenant_type === 'COMPANY')
+      .sort((a: any, b: any) => Number(b.role === 'OWNER') - Number(a.role === 'OWNER'));
+    const companyTenant = companies[0] ?? null;
+    const company = companyTenant
+      ? {
+          id: companyTenant.tenant_id,
+          name: companyTenant.tenant_name,
+          rif: companyTenant.rif,
+          email: companyTenant.email,
+          phone: companyTenant.phone,
+          maxCondos: companyTenant.maxCondos,
+          condoIds: portfolioRes.rows
+            .filter((c: any) => c.tenant_id === companyTenant.tenant_id)
+            .map((c: any) => c.id),
+        }
+      : null;
+
     return {
       ...user,
       ...state[id],
+      company,
       condos: condoEntries,
       units: unitsRes.rows.map((u) => ({
         unitId: u.property_unit_id,
@@ -520,6 +547,124 @@ export class UsersService {
   }
 
   /**
+   * Garantiza que el usuario tenga una empresa (tenant COMPANY) con el usuario
+   * como OWNER. Si ya tiene empresa no hace nada; si el RIF indicado corresponde
+   * a una empresa existente, se vincula a esa empresa en vez de duplicarla.
+   * Devuelve el tenant_id de la empresa.
+   */
+  private async ensureCompany(
+    client: any,
+    userId: string,
+    company?: { name?: string; rif?: string; email?: string; phone?: string },
+  ): Promise<string> {
+    const owned = await client.query(
+      `SELECT t.id FROM tenant_users tu
+         JOIN tenants t ON t.id = tu.tenant_id
+        WHERE tu.user_id = $1 AND tu.is_active = TRUE AND t.tenant_type = 'COMPANY'
+        ORDER BY (tu.role = 'OWNER') DESC, tu.created_at
+        LIMIT 1`,
+      [userId],
+    );
+    if (owned.rows.length > 0) return owned.rows[0].id as string;
+
+    if (!company?.name?.trim()) {
+      throw new BadRequestException(
+        'Para definir al usuario como Administradora indica los datos de la empresa (nombre comercial y RIF)',
+      );
+    }
+    const rif = company.rif?.trim() || null;
+    if (!rif) {
+      throw new BadRequestException('El RIF de la empresa es requerido para crearla');
+    }
+
+    // ¿La empresa ya existe por RIF? -> se vincula a esa en vez de duplicarla.
+    const byRif = await client.query(`SELECT id FROM tenants WHERE rif = $1`, [rif]);
+    let tenantId: string;
+    if (byRif.rows.length > 0) {
+      tenantId = byRif.rows[0].id;
+    } else {
+      const base =
+        company.name
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 60) || 'empresa';
+      let slug = base;
+      let n = 1;
+      while ((await client.query(`SELECT 1 FROM tenants WHERE slug = $1`, [slug])).rows.length > 0) {
+        n += 1;
+        slug = `${base}-${n}`;
+      }
+      const created = await client.query(
+        `INSERT INTO tenants (name, slug, tenant_type, rif, email, phone)
+         VALUES ($1, $2, 'COMPANY', $3, $4, $5)
+         RETURNING id`,
+        [company.name.trim(), slug, rif, company.email?.trim() || null, company.phone || null],
+      );
+      tenantId = created.rows[0].id;
+    }
+
+    await client.query(
+      `INSERT INTO tenant_users (tenant_id, user_id, role, is_owner, is_active)
+       VALUES ($1, $2, 'OWNER', TRUE, TRUE)
+       ON CONFLICT (tenant_id, user_id)
+       DO UPDATE SET role = 'OWNER', is_owner = TRUE, is_active = TRUE`,
+      [tenantId, userId],
+    );
+    return tenantId as string;
+  }
+
+  /**
+   * Incorpora residencias a la cartera de la empresa validando el plan
+   * (`tenants.max_condos`; NULL = sin límite). Solo suma residencias que aún no
+   * pertenecen a la empresa — sacar residencias de una cartera no es un
+   * flujo soportado (los condos siempre pertenecen a un tenant).
+   */
+  private async addToPortfolio(client: any, tenantId: string, condoIds: string[]): Promise<void> {
+    const ids = [...new Set(condoIds)];
+    if (ids.length === 0) return;
+
+    const planRes = await client.query(`SELECT max_condos FROM tenants WHERE id = $1`, [tenantId]);
+    const max = planRes.rows[0]?.max_condos ?? null;
+    if (max != null) {
+      const current = await client.query(
+        `SELECT COUNT(*)::int AS n FROM condos WHERE tenant_id = $1 AND is_active = TRUE`,
+        [tenantId],
+      );
+      const pending = await client.query(
+        `SELECT COUNT(*)::int AS n FROM condos
+          WHERE id = ANY($1::uuid[]) AND tenant_id <> $2 AND is_active = TRUE`,
+        [ids, tenantId],
+      );
+      const total = current.rows[0].n + pending.rows[0].n;
+      if (total > max) {
+        throw new BadRequestException(
+          `La empresa no puede superar su plan: máximo ${max} residencia(s) y quedaría con ${total}`,
+        );
+      }
+    }
+
+    await client.query(
+      `UPDATE condos SET tenant_id = $1
+        WHERE id = ANY($2::uuid[]) AND tenant_id <> $1`,
+      [tenantId, ids],
+    );
+  }
+
+  /** Regla de negocio: una Junta de Condominio solo puede tener UNA residencia. */
+  private assertJuntaScope(condoIds: string[]): void {
+    const distinct = new Set(condoIds);
+    if (distinct.size > 1) {
+      throw new BadRequestException(
+        'Una Junta de Condominio solo puede tener una residencia asignada; elige una sola residencia',
+      );
+    }
+  }
+
+  /**
    * Crea un usuario y sus asignaciones de residencias/unidades.
    *
    * Si llega `password`, la cuenta queda activa con correo verificado. Si no,
@@ -535,12 +680,18 @@ export class UsersService {
 
     const hasPassword = !!dto.password;
     const passwordHash = hasPassword ? await bcrypt.hash(dto.password as string, 10) : null;
+
+    // Regla de negocio de entrada: una Junta de Condominio tiene UNA residencia.
+    if (dto.accountType === 'JUNTA') {
+      this.assertJuntaScope((dto.assignments || []).map((a) => a.condoId));
+    }
+
     const client = await this.db.getClient();
     try {
       await client.query('BEGIN');
       const userRes = await client.query(
-        `INSERT INTO users (email, password_hash, first_name, last_name, doc_type, doc_number, phone, is_active, is_superadmin, email_verified_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `INSERT INTO users (email, password_hash, first_name, last_name, doc_type, doc_number, phone, is_active, is_superadmin, email_verified_at, account_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING id`,
         [
           email,
@@ -553,9 +704,19 @@ export class UsersService {
           dto.isActive ?? true,
           dto.isSuperadmin ?? false,
           hasPassword ? new Date() : null,
+          dto.accountType ?? 'PROPIETARIO',
         ],
       );
       const userId = userRes.rows[0].id;
+
+      // ADMINISTRADORA: se crea (o vincula) su empresa y se incorporan las
+      // residencias de su cartera respetando el plan (tenants.max_condos).
+      if (dto.accountType === 'ADMINISTRADORA') {
+        const tenantId = await this.ensureCompany(client, userId, dto.company);
+        if (dto.portfolioCondoIds?.length) {
+          await this.addToPortfolio(client, tenantId, dto.portfolioCondoIds);
+        }
+      }
 
       for (const a of dto.assignments || []) {
         await client.query(
@@ -655,8 +816,29 @@ export class UsersService {
    * apuntando hacia ellas, el reemplazo es seguro).
    */
   async update(id: string, dto: UpdateUserDto) {
-    const existing = await this.db.query(`SELECT id FROM users WHERE id = $1`, [id]);
+    const existing = await this.db.query(`SELECT id, account_type FROM users WHERE id = $1`, [id]);
     if (existing.rows.length === 0) throw new NotFoundException('Usuario no encontrado');
+    const currentType = existing.rows[0].account_type as string;
+    const effectiveType = dto.accountType ?? currentType;
+
+    // Regla de negocio: una Junta de Condominio solo puede tener UNA residencia.
+    if (effectiveType === 'JUNTA') {
+      if (dto.assignments !== undefined) {
+        this.assertJuntaScope(dto.assignments.map((a) => a.condoId));
+      } else if (dto.accountType === 'JUNTA') {
+        const cur = await this.db.query(
+          `SELECT COUNT(DISTINCT condo_id)::int AS n
+             FROM condo_user_access
+            WHERE user_id = $1 AND is_active = TRUE`,
+          [id],
+        );
+        if (cur.rows[0].n > 1) {
+          throw new BadRequestException(
+            'Una Junta de Condominio solo puede tener una residencia asignada; este usuario tiene residencias en varias. Quita las extras antes de definirlo como Junta.',
+          );
+        }
+      }
+    }
 
     if (dto.email) {
       const email = dto.email.trim().toLowerCase();
@@ -683,6 +865,7 @@ export class UsersService {
            phone = COALESCE($6, phone),
            is_active = COALESCE($7, is_active),
            is_superadmin = COALESCE($8, is_superadmin),
+           account_type = COALESCE($10, account_type),
            updated_at = NOW()
          WHERE id = $9
          RETURNING id`,
@@ -696,9 +879,19 @@ export class UsersService {
           dto.isActive,
           dto.isSuperadmin,
           id,
+          dto.accountType,
         ],
       );
       if (userRes.rows.length === 0) throw new NotFoundException('Usuario no encontrado');
+
+      // ADMINISTRADORA: garantiza su empresa (la crea con los datos si no
+      // existe) e incorpora residencias a la cartera validando el plan.
+      if (effectiveType === 'ADMINISTRADORA') {
+        const tenantId = await this.ensureCompany(client, id, dto.company);
+        if (dto.portfolioCondoIds?.length) {
+          await this.addToPortfolio(client, tenantId, dto.portfolioCondoIds);
+        }
+      }
 
       if (dto.assignments !== undefined) {
         await client.query(`DELETE FROM condo_user_access WHERE user_id = $1`, [id]);

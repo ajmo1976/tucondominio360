@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { resolveCondoCode } from '../../common/condo-code';
 
@@ -79,6 +79,22 @@ export class CondosService {
 
   async createCondo(data: any) {
     const tenantId = data.tenantId || '22222222-2222-2222-2222-222222222201';
+
+    // Plan comercial de la empresa (tenants.max_condos; NULL = sin límite).
+    const plan = await this.db.query(`SELECT max_condos FROM tenants WHERE id = $1`, [tenantId]);
+    const maxCondos = plan.rows[0]?.max_condos ?? null;
+    if (maxCondos != null) {
+      const cur = await this.db.query(
+        `SELECT COUNT(*)::int AS n FROM condos WHERE tenant_id = $1 AND is_active = TRUE`,
+        [tenantId],
+      );
+      if (cur.rows[0].n >= maxCondos) {
+        throw new BadRequestException(
+          `La empresa alcanzó el límite de su plan: máximo ${maxCondos} residencia(s). Ajusta el plan desde la pantalla de Empresas.`,
+        );
+      }
+    }
+
     // Código corto para numerar los recibos (REC-CODIGO-AAAA-MM-APTO), único
     // dentro del tenant: el explícito si es válido, si no la abreviatura del nombre.
     const condoCode = await this.resolveUniqueCondoCode(

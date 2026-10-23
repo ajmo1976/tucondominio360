@@ -61,6 +61,8 @@ interface UserRow {
   is_active: boolean;
   is_superadmin: boolean;
   created_at: string;
+  /** Tipo principal que define el superadmin. */
+  accountType?: 'PROPIETARIO' | 'JUNTA' | 'ADMINISTRADORA';
   condos: CondoAccess[];
   emailVerified?: boolean;
   authProviders?: string[];
@@ -116,6 +118,13 @@ const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   'Google + Contraseña': <Send className="w-3 h-3" />,
   Contraseña: <Key className="w-3 h-3" />,
   'Sin proveedor': <AlertCircle className="w-3 h-3" />,
+};
+
+/** Badge del tipo de usuario que define el superadmin. */
+const ACCOUNT_TYPE_BADGES: Record<string, { label: string; color: string }> = {
+  PROPIETARIO: { label: 'Propietario', color: 'bg-slate-100 border-slate-200 text-slate-600' },
+  JUNTA: { label: 'Junta', color: 'bg-amber-50 border-amber-200 text-amber-700' },
+  ADMINISTRADORA: { label: 'Administradora', color: 'bg-blue-50 border-blue-200 text-blue-700' },
 };
 
 export function UsersView() {
@@ -432,6 +441,20 @@ export function UsersView() {
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex flex-wrap gap-1">
+                          {u.accountType && ACCOUNT_TYPE_BADGES[u.accountType] && (
+                            <span
+                              className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${ACCOUNT_TYPE_BADGES[u.accountType].color}`}
+                              title={
+                                u.accountType === 'JUNTA'
+                                  ? 'Junta de Condominio: una sola residencia'
+                                  : u.accountType === 'ADMINISTRADORA'
+                                    ? 'Empresa administradora: cartera de residencias según el plan'
+                                    : 'Dueño/ocupante de unidades'
+                              }
+                            >
+                              {ACCOUNT_TYPE_BADGES[u.accountType].label}
+                            </span>
+                          )}
                           {u.is_superadmin && (
                             <span className="px-2 py-0.5 rounded-full bg-slate-900 text-emerald-400 text-[10px] font-bold">
                               Super Administrador

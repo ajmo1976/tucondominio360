@@ -114,6 +114,7 @@ export function Sidebar({
     { id: 'access', label: 'Control de Acceso / Garita', icon: QrCode },
     { id: 'amenities', label: 'Reserva de Áreas Comunes', icon: CalendarDays },
     { id: 'users', label: 'Usuarios y Accesos', icon: Users },
+    { id: 'companies', label: 'Empresas Administradoras', icon: Building2 },
     { id: 'consultations', label: 'Consultas y Asambleas', icon: Vote },
   ];
 
@@ -142,8 +143,11 @@ export function Sidebar({
         ]
       : PORTAL_MENU_ITEMS;
 
-  // Filtrar según permisos Y módulos habilitados
-  const menuItems = filterMenuItems(baseMenuItems, permissions);
+  // Filtrar según permisos Y módulos habilitados; "Empresas" es exclusivo
+  // del superadmin (los demás roles ni siquiera la ven en el menú).
+  const menuItems = filterMenuItems(baseMenuItems, permissions).filter(
+    (item) => item.id !== 'companies' || isSuperadmin,
+  );
 
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between shrink-0 min-h-screen">
