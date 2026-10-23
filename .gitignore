@@ -34,3 +34,5 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+# Estado de servicios (servicios.sh: pids + logs)
+.run/
