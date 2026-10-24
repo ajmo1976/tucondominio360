@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2 } from 'lucide-react';
+import { AccountType } from '@tucondominio360/shared';
 import { Sidebar } from '../components/Sidebar';
 import { Header } from '../components/Header';
 import { DashboardView } from '../components/DashboardView';
@@ -89,6 +90,7 @@ export default function Home() {
     isSuperadmin: false,
     /** Staff de empresa administradora/junta o con rol de residencia (menú de gestión). */
     isStaff: false,
+    accountType: null,
   });
 
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
@@ -209,6 +211,7 @@ export default function Home() {
           role,
           isSuperadmin: isSuper,
           isStaff,
+          accountType: meRes.user.account_type ?? null,
         });
         // Pestaña inicial según el tipo de usuario: el personal de
         // administración (empresa o residencia) entra al dashboard de gestión;
@@ -258,6 +261,7 @@ export default function Home() {
         permissions={userPermissions}
         modulesByCondo={modulesByCondo}
         selectedCondoId={selectedCondo?.id}
+        accountType={userProfile.accountType}
       />
 
       {/* Contenido Principal */}

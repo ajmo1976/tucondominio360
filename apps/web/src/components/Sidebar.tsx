@@ -2,6 +2,11 @@
 
 import React from 'react';
 import {
+  AccountType,
+  MODULE_VISIBILITY_BY_ACCOUNT_TYPE,
+  modulesVisibleForAccountType,
+} from '../lib/account-modules';
+import {
   LayoutDashboard,
   Receipt,
   ArrowLeftRight,
@@ -27,6 +32,9 @@ interface SidebarProps {
   permissions?: string[];
   modulesByCondo?: Record<string, string[]>;
   selectedCondoId?: string;
+  /** Tipo de cuenta del usuario (PROPIETARIO | JUNTA | ADMINISTRADORA): filtra
+   *  modulos de menu segun el rol de cuenta, complementando modulosByCondo. */
+  accountType?: AccountType | null;
 }
 
 export function Sidebar({
@@ -37,6 +45,7 @@ export function Sidebar({
   permissions = [],
   modulesByCondo = {},
   selectedCondoId,
+  accountType,
 }: SidebarProps) {
   // Permisos mínimos requeridos por cada ítem de menú (para usuarios no superadmin).
   const MENU_PERMISSIONS: Record<string, string[]> = {
@@ -89,14 +98,28 @@ export function Sidebar({
     return condoModules.includes(moduleCode);
   }
 
-  /** Filtra los ítems del menú basándose en permisos Y módulos habilitados. */
+  /** Verifica si el módulo es visible para el tipo de cuenta del usuario. */
+  function isModuleVisibleForAccountType(itemId: string): boolean {
+    if (!accountType) return true;
+    const moduleCode = MENU_TO_MODULE[itemId];
+    if (!moduleCode) return true;
+    const visible = modulesVisibleForAccountType(accountType, [moduleCode]);
+    return visible.length > 0;
+  }
+
+  /** Filtra los ítems del menú basándose en permisos, módulos habilitados
+   *  por condominio y visibilidad por tipo de cuenta. */
   function filterMenuItems(
     items: { id: string; label: string; icon: any }[],
     perms: string[],
   ): { id: string; label: string; icon: any }[] {
     if (!perms || perms.length === 0) return items;
     return items.filter((item) => {
-      return hasPermission(item.id, perms) && isModuleEnabled(item.id);
+      return (
+        hasPermission(item.id, perms) &&
+        isModuleEnabled(item.id) &&
+        isModuleVisibleForAccountType(item.id)
+      );
     });
   }
 

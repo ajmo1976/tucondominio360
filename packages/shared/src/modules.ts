@@ -122,3 +122,75 @@ export function canToggleModule(code: ModuleCode, enabled: boolean): boolean {
 export const MODULE_BY_CODE: ReadonlyMap<ModuleCode, ModuleDefinition> = new Map(
   MODULE_CATALOG.map((m) => [m.code, m]),
 );
+
+// -----------------------------------------------------------------------------
+// Visibilidad de módulos de menú por tipo de cuenta de usuario
+// -----------------------------------------------------------------------------
+//
+// Complementa el sistema de módulos por condominio/empresa
+// (tenant_modules / condo_modules / modules.default_enabled). Un módulo de
+// menú es visible solo si cumple AMBAS condiciones:
+//   1. Está habilitado para la residencia seleccionada (sistema existente).
+//   2. Está en la lista del tipo de cuenta del usuario (esta matriz).
+//
+// Los módulos CORE (DASHBOARD, COMMUNITY, BILLING, UNITS, USERS) nunca se
+// apagan por condominio; aquí decidimos solo la visibilidad de menú por rol
+// de cuenta:
+//
+// - PROPIETARIO: ve lo propio (mis recibos vía COMMUNITY, mis unidades,
+//   reservas de áreas, reportes de mantenimiento, cartelera, consultas). No
+//   ve gestión de recibos (BILLING), gastos (EXPENSES), pagos (PAYMENTS),
+//   control de acceso (ACCESS) ni administración de usuarios (USERS).
+// - JUNTA: ve módulos de administración del condominio excepto los que
+//   dependen de un rol específico dentro de la junta (ACCESS solo si tiene
+//   garita; AMENITIES solo si tiene áreas comunes). Se afinará por
+//   condo_role en una fase posterior.
+// - ADMINISTRADORA: ve todo el menú de administración.
+export type AccountType = 'PROPIETARIO' | 'JUNTA' | 'ADMINISTRADORA';
+
+export const MODULE_VISIBILITY_BY_ACCOUNT_TYPE: Record<AccountType, ReadonlyArray<ModuleCode>> = {
+  PROPIETARIO: [
+    'DASHBOARD',
+    'COMMUNITY',
+    'UNITS',
+    'AMENITIES',
+    'MAINTENANCE',
+    'ANNOUNCEMENTS',
+    'CONSULTATIONS',
+  ] as const,
+  JUNTA: [
+    'DASHBOARD',
+    'COMMUNITY',
+    'BILLING',
+    'UNITS',
+    'EXPENSES',
+    'PAYMENTS',
+    'MAINTENANCE',
+    'ANNOUNCEMENTS',
+    'CONSULTATIONS',
+  ] as const,
+  ADMINISTRADORA: [
+    'DASHBOARD',
+    'COMMUNITY',
+    'BILLING',
+    'UNITS',
+    'EXPENSES',
+    'PAYMENTS',
+    'ACCESS',
+    'AMENITIES',
+    'MAINTENANCE',
+    'ANNOUNCEMENTS',
+    'CONSULTATIONS',
+  ] as const,
+};
+
+/** Filtra los módulos efectivos de una residencia dejando solo los que son
+ * visibles para el tipo de cuenta del usuario. Devuelve [] si el accountType
+ * no se reconoce (modo seguro: no muestra nada no listado explícitamente). */
+export function modulesVisibleForAccountType(
+  accountType: AccountType,
+  enabledModules: readonly string[],
+): ModuleCode[] {
+  const allowed = new Set(MODULE_VISIBILITY_BY_ACCOUNT_TYPE[accountType] ?? []);
+  return enabledModules.filter((m) => allowed.has(m as ModuleCode)) as ModuleCode[];
+}
