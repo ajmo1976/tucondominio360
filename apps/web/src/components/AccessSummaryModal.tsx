@@ -16,7 +16,7 @@ import {
   ALL_CONDO_PERMISSIONS,
   CondoPermission,
   effectivePermissions,
-} from '@tucondominio360/shared';
+} from '@tucondominio360/shared/permissions';
 import { fetchWithAuth } from '../lib/api';
 import { ROLE_LABELS } from './UserFormModal';
 
