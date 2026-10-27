@@ -8,22 +8,38 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private pool: Pool;
 
   constructor(private readonly configService: ConfigService) {
-    this.pool = new Pool({
-      host: this.configService.get<string>('DATABASE_HOST', 'localhost'),
-      port: Number(this.configService.get<number>('DATABASE_PORT', 5433)),
-      user: this.configService.get<string>('DATABASE_USER', 'postgres'),
-      password: this.configService.get<string>('DATABASE_PASSWORD', 'postgrespassword'),
-      database: this.configService.get<string>('DATABASE_NAME', 'tucondominio360'),
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-    });
+    const connectionString = this.configService.get<string>('DATABASE_URL');
+
+    if (connectionString) {
+      this.pool = new Pool({
+        connectionString,
+        ssl: {
+          rejectUnauthorized: false,
+        },
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+      });
+    } else {
+      const isSsl = this.configService.get<string>('DATABASE_SSL', 'false') === 'true';
+      this.pool = new Pool({
+        host: this.configService.get<string>('DATABASE_HOST', 'localhost'),
+        port: Number(this.configService.get<number>('DATABASE_PORT', 5433)),
+        user: this.configService.get<string>('DATABASE_USER', 'postgres'),
+        password: this.configService.get<string>('DATABASE_PASSWORD', 'postgrespassword'),
+        database: this.configService.get<string>('DATABASE_NAME', 'tucondominio360'),
+        ssl: isSsl ? { rejectUnauthorized: false } : false,
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+      });
+    }
   }
 
   async onModuleInit() {
     try {
       const client = await this.pool.connect();
-      this.logger.log('Conexión exitosa a la base de datos PostgreSQL (tucondominio360)');
+      this.logger.log('Conexión exitosa a la base de datos PostgreSQL');
       client.release();
     } catch (error) {
       this.logger.error('Error conectando a PostgreSQL:', error);

@@ -434,6 +434,19 @@ export class CondosService {
       [condoId, user.id, data.role || 'OWNER'],
     );
 
+    // Si se asigna como ADMIN de la residencia, se registra también como
+    // personal de la empresa administradora dueña de la residencia (tenant),
+    // para que herede el acceso a toda la cartera.
+    if ((data.role || 'OWNER') === 'ADMIN') {
+      await this.db.query(
+        `INSERT INTO tenant_users (tenant_id, user_id, role, is_owner, is_active)
+         SELECT c.tenant_id, $2, 'STAFF', FALSE, TRUE
+           FROM condos c WHERE c.id = $1
+         ON CONFLICT (tenant_id, user_id) DO NOTHING`,
+        [condoId, user.id],
+      );
+    }
+
     await this.db.query(
       `INSERT INTO unit_occupants (property_unit_id, user_id, role, is_primary_contact, is_billing_recipient)
        VALUES ($1, $2, $3, TRUE, TRUE)

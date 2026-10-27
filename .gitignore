@@ -36,3 +36,7 @@ Thumbs.db
 *.swp
 # Estado de servicios (servicios.sh: pids + logs)
 .run/
+
+.env
+.env.local
+apps/api/.env
