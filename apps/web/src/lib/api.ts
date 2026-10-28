@@ -1,4 +1,4 @@
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') : 'http://localhost:3001') + '/api';
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') : 'https://tucondominio360-backend.onrender.com') + '/api';
 
 /** Base pública de la API (para enlaces que salen del fetch, p. ej. Google). */
 export const API_BASE_URL = API_BASE;

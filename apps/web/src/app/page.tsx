@@ -157,7 +157,7 @@ export default function Home() {
   const loadCondoData = async (condoId: string) => {
     try {
       // Tasa BCV
-      const bcv = await fetch(`${(process.env.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') : 'http://localhost:3001')}/api/bcv/current`)
+      const bcv = await fetch(`${(process.env.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '') : 'https://tucondominio360-backend.onrender.com')}/api/bcv/current`)
         .then((r) => r.json())
         .catch(() => null);
       if (bcv?.rate) setBcvRate(Number(bcv.rate).toFixed(4));
